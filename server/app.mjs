@@ -3,10 +3,12 @@ import { PDFDocument } from 'pdf-lib';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { readFileSync } from 'node:fs';
 import { applyCommand, commandDigest, createCase, exportReviewed, fail, hash, reasons, summary, validId } from './domain.mjs';
-import { requireRole } from './auth.mjs';
+import { identityConfigured, requireRole } from './auth.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const { version } = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
 const view = (record, etag) => ({
   ...record, summary: summary(record), etag,
   fieldReasons: Object.fromEntries(record.proposal.fields.map(field => [field.id, reasons(record.proposal, field)]))
@@ -14,6 +16,7 @@ const view = (record, etag) => ({
 
 export function createApp({ store, authenticate, config }) {
   const app = express();
+  const identityReady = identityConfigured(config);
   async function verifiedSource(record) {
     const source = await store.getDocument(record.proposal.document.id);
     if (hash(source.bytes) !== record.proposal.document.sha256 || source.document.sha256 !== record.proposal.document.sha256) {
@@ -31,12 +34,14 @@ export function createApp({ store, authenticate, config }) {
     next();
   });
   app.get('/healthz', (request, response) => response.json({ status: 'ok', component: 'document-review' }));
-  app.get('/api/config', (request, response) => response.json({
-    tenantId: config.tenantId, spaClientId: config.spaClientId,
-    apiScope: `api://${config.apiClientId}/Review.Access`, mode: 'connected', version: '0.1.0'
+  app.get('/api/config', (request, response) => response.set('Cache-Control', 'no-store').json({
+    tenantId: config.tenantId ?? null, spaClientId: identityReady ? config.spaClientId : null,
+    apiScope: identityReady ? `api://${config.apiClientId}/Review.Access` : null,
+    mode: identityReady ? 'connected' : 'identity_setup_required', version
   }));
   app.use('/api', async (request, response, next) => {
     response.set('Cache-Control', 'no-store');
+    if (!identityReady) fail(503, 'identity_setup_required', 'An administrator must finish Microsoft Entra setup before this workbench can access review data.');
     request.actor = await authenticate(request);
     next();
   });

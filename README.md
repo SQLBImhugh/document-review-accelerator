@@ -47,6 +47,69 @@ retraining or a ready-made native model-label file.
 
 ## Deploy
 
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FSQLBImhugh%2Fdocument-review-accelerator%2Fmain%2Finfra%2Fazuredeploy.json)
+
+### Portal deployment
+
+1. Select the button and choose the intended subscription and a **new, empty
+   resource group**. Choose a region with Linux B1 quota.
+2. Enter an owner alias or team for resource tags, then review and create.
+   The template installs a versioned application ZIP as well as the web app
+   and storage. No local Node.js build, Docker image, or registry is required.
+3. Open the deployment's **Outputs** and copy `identitySetupCommand`.
+4. Complete the identity setup below, then sign in at `appUrl`.
+
+The button uses public HTTPS endpoints and creates no private network resources.
+It does not grant Microsoft Graph permissions to a cloud identity or create an
+application secret. Until identity setup is complete, the page shows setup
+guidance and **every review/document API is locked**, including requests with a
+bearer token. The public health and configuration endpoints remain available.
+
+The B1 plan incurs the [cost described below](#cost-and-network-behavior).
+Use the CLI path for private-networked deployments. Do not point the portal
+template at an existing private deployment; retain its original CLI options.
+
+### Finish identity setup
+
+This step needs PowerShell 7, Azure CLI signed in to the intended tenant, Azure
+permission to update the deployed web app, and Entra permission to create
+registrations and assign their application roles. It runs under the operator's
+identity, not the web app's managed identity.
+
+```powershell
+git clone https://github.com/SQLBImhugh/document-review-accelerator.git
+Set-Location .\document-review-accelerator
+
+# Use the command from the portal deployment's identitySetupCommand output:
+.\scripts\deploy.ps1 `
+  -SubscriptionId "<subscription-guid>" `
+  -TenantId "<tenant-guid>" `
+  -ResourceGroup "<the-deployed-resource-group>" `
+  -AppName "<the-appName-output>" `
+  -IdentityOnly
+```
+
+`-IdentityOnly` verifies the existing app, storage ownership tags, and tenant;
+creates or reuses the SPA/API registrations; configures the redirect URI and
+operator roles; and updates only the sign-in app settings. It does not create
+another plan, redeploy infrastructure, or require local Node.js dependencies.
+Keep its ignored `.local\deployment.json` receipt for updates and teardown.
+Entra permissions can take time to propagate; reauthenticate and rerun the same
+command if required. It reuses its owned registrations.
+
+The installed app stays on the existing App Service/Blob architecture. Only the
+Blob data role is assigned to its managed identity. Subsequent portal template
+updates preserve the sign-in client IDs configured by this step.
+
+To load the optional synthetic examples, install Node.js 24 LTS and the
+dependencies, then rerun the same identity command with `-Seed`:
+
+```powershell
+npm ci --ignore-scripts --omit=optional --no-fund --no-audit
+```
+
+### CLI deployment
+
 Supports Azure commercial cloud. Requires PowerShell 7, Azure CLI with Bicep,
 Node.js 24 LTS, and an authenticated
 deployment identity with:
@@ -166,6 +229,7 @@ npm run check
 npm test
 npm run test:deployment
 npm run test:e2e
+npm run build:portal
 az bicep build --file .\infra\main.bicep --stdout | Out-Null
 .\scripts\package.ps1 -Source
 ```
@@ -174,6 +238,16 @@ Browser tests use installed Microsoft Edge through Playwright; no browser
 download is needed. The test-only host binds to loopback and injects an isolated
 identity/store. It is not part of the production runtime ZIP.
 Deployment-option tests use PowerShell 7 and do not call Azure or change resources.
+
+`npm run build:portal` regenerates `infra\azuredeploy.json` from
+`infra\azuredeploy.bicep` and the shared main template. Its runtime package URL
+uses the version from `package.json`, for example
+`releases/download/v0.2.0/document-review-app-v0.2.0.zip`.
+The matching GitHub release includes a SHA-256 checksum. Regenerate the template
+and publish the matching built runtime ZIP before releasing a new button version;
+the GitHub source-code ZIP is not an executable deployment package.
+After `.\scripts\package.ps1`, run `npm run test:package` to boot the actual ZIP
+on a temporary local port, verify locked APIs and browser assets, and stop it.
 
 `dist\document-review-accelerator-source.zip` contains reusable source, tests,
 contracts, and deployment scripts. It excludes customer documents, deployment

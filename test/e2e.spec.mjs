@@ -226,3 +226,24 @@ test('accept original is one click without a note while needs-information keeps 
   await expect(page.locator('#review-state-label')).toHaveText('Needs information');
   await expect(page.locator('#signoff')).toBeDisabled();
 });
+
+test('new portal deployments show identity setup guidance without starting sign-in or loading cases', async ({ page }) => {
+  await page.route('**/api/config', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ mode: 'identity_setup_required', tenantId: '11111111-1111-4111-8111-111111111111', spaClientId: null, apiScope: null })
+  }));
+  await page.route('**/vendor/msal/msal-browser.min.js', route => route.fulfill({
+    contentType: 'application/javascript',
+    body: "window.msal={PublicClientApplication:class {constructor(){throw new Error('Sign-in must not initialize before setup')}}};"
+  }));
+  const dataRequests = [];
+  page.on('request', request => {
+    if (/\/api\/(me|cases|documents)(\/|$)/.test(new URL(request.url()).pathname)) dataRequests.push(request.url());
+  });
+  await page.reload();
+  await expect(page.locator('#setup-notice')).toBeVisible();
+  await expect(page.locator('#setup-notice')).toContainText('No review data is accessible');
+  await expect(page.locator('#signin')).toBeDisabled();
+  await expect(page.locator('#queue .queue-item')).toHaveCount(0);
+  expect(dataRequests).toEqual([]);
+});

@@ -18,6 +18,7 @@
     <div class="identity"><span id="identity">Not signed in</span><button id="signin" class="primary" disabled>Sign in</button><button id="signout" hidden>Sign out</button></div>
   </header>
   <div class="notice"><b>Review, then release.</b> This service reviews existing extraction results. It does not extract documents or train a model.</div>
+  <div id="setup-notice" class="notice setup-required" hidden><b>Finish Microsoft Entra setup.</b> No review data is accessible until an administrator configures sign-in. <a href="https://github.com/SQLBImhugh/document-review-accelerator#finish-identity-setup" target="_blank" rel="noopener noreferrer">Setup instructions</a></div>
   <div id="message" class="message" role="status" aria-live="polite">Sign in with an assigned Reviewer role to open the queue.</div>
   <main class="workbench" aria-label="Review workbench">
     <aside class="queue-panel" aria-label="Review queue">

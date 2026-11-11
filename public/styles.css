@@ -49,6 +49,9 @@ h3 { font-size:16px; }
 .identity { margin-left:auto; display:flex; align-items:center; gap:10px; font-size:12px; color:var(--muted); padding-top:7px; }
 .notice { padding:9px 26px; background:var(--note-bg); color:var(--muted); font-size:12px; border-bottom:1px solid var(--line); }
 .notice b { color:var(--ink); margin-right:6px; }
+.notice a { color:var(--accent); }
+.setup-required { background:var(--danger-bg); border-left:3px solid var(--red); }
+.setup-required b { color:var(--red); }
 .message { min-height:38px; padding:9px 26px; font-size:12px; color:var(--muted); border-bottom:1px solid var(--line); }
 .message.error { color:var(--red); background:var(--danger-bg); }
 .message.success { color:var(--green); background:var(--good-bg); }

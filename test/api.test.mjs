@@ -10,7 +10,11 @@ const fixture = await syntheticFixture();
 const store = new MemoryStore();
 const app = createApp({
   store,
-  config: { tenantId: 'test', apiClientId: 'test-api', spaClientId: 'test-spa' },
+  config: {
+    tenantId: '11111111-1111-4111-8111-111111111111',
+    apiClientId: '22222222-2222-4222-8222-222222222222',
+    spaClientId: '33333333-3333-4333-8333-333333333333'
+  },
   authenticate: async request => {
     if (!request.headers['x-test-role']) fail(401, 'authentication_required', 'Test identity required.');
     return { id: 'test-reviewer', roles: request.headers['x-test-role'].split(',') };
@@ -171,4 +175,35 @@ test('API accepts the original with no reason, audits it once, and still rejects
   const loaded = await (await request(`/api/cases/${proposal.id}`)).json();
   assert.equal(loaded.decisions.type.value, 'tubular spacer');
   assert.equal(loaded.audit.length, 2);
+});
+
+test('portal deployment stays locked until identity setup, even with a bearer token', async t => {
+  let authenticationCalls = 0;
+  const pending = createApp({
+    config: { tenantId: '11111111-1111-4111-8111-111111111111', apiClientId: '', spaClientId: '' },
+    store: new Proxy({}, { get: () => { throw new Error('Pending setup must not access review storage.'); } }),
+    authenticate: async () => {
+      authenticationCalls++;
+      return { id: 'unexpected', roles: ['Reviewer', 'Importer'] };
+    }
+  });
+  const host = pending.listen(0, '127.0.0.1');
+  await once(host, 'listening');
+  t.after(() => new Promise(resolve => host.close(resolve)));
+  const origin = `http://127.0.0.1:${host.address().port}`;
+  assert.equal((await fetch(`${origin}/healthz`)).status, 200);
+  const config = await (await fetch(`${origin}/api/config`)).json();
+  assert.equal(config.mode, 'identity_setup_required');
+  assert.equal(config.apiScope, null);
+  assert.equal(config.spaClientId, null);
+  for (const [method, route] of [
+    ['GET', '/api/me'], ['GET', '/api/cases'], ['POST', '/api/cases'],
+    ['POST', '/api/documents'], ['GET', '/api/cases/example/document'],
+    ['POST', '/api/cases/example/commands'], ['GET', '/api/cases/example/export']
+  ]) {
+    const response = await fetch(origin + route, { method, headers: { authorization: 'Bearer not-a-setup-bypass' } });
+    assert.equal(response.status, 503, `${method} ${route}`);
+    assert.equal((await response.json()).error, 'identity_setup_required');
+  }
+  assert.equal(authenticationCalls, 0);
 });

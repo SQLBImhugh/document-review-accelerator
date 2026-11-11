@@ -384,11 +384,16 @@ for (const action of ['accept', 'correct', 'unresolved', 'signoff']) $(action).a
 $('export').addEventListener('click', () => exportCase(false).catch(report));
 $('feedback').addEventListener('click', () => exportCase(true).catch(report));
 try {
-  config = await (await fetch('/api/config')).json();
-  identity = new window.msal.PublicClientApplication({
-    auth: { clientId: config.spaClientId, authority: `https://login.microsoftonline.com/${config.tenantId}`, redirectUri: `${location.origin}/auth.html` },
-    cache: { cacheLocation: 'memoryStorage' }
-  });
-  await identity.initialize();
-  $('signin').disabled = false;
+  config = await (await fetch('/api/config', { cache: 'no-store' })).json();
+  if (config.mode === 'identity_setup_required') {
+    $('setup-notice').hidden = false;
+    message('Application deployed. Microsoft Entra setup is still required before anyone can sign in or review documents.');
+  } else {
+    identity = new window.msal.PublicClientApplication({
+      auth: { clientId: config.spaClientId, authority: `https://login.microsoftonline.com/${config.tenantId}`, redirectUri: `${location.origin}/auth.html` },
+      cache: { cacheLocation: 'memoryStorage' }
+    });
+    await identity.initialize();
+    $('signin').disabled = false;
+  }
 } catch (error) { report(new Error(`Sign-in could not initialize: ${error.message}`)); }

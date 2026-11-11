@@ -1,0 +1,666 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.44.1.10279",
+      "templateHash": "13421279070373535355"
+    }
+  },
+  "parameters": {
+    "namePrefix": {
+      "type": "string",
+      "defaultValue": "docreview",
+      "minLength": 3,
+      "maxLength": 30,
+      "metadata": {
+        "description": "Lowercase name prefix. Use a new, empty resource group for the portal deployment."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional Azure region code. Leave blank to use the resource group location."
+      }
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1,
+      "metadata": {
+        "description": "Resource owner alias or team for tagging."
+      }
+    },
+    "costCenter": {
+      "type": "string",
+      "defaultValue": "POC"
+    },
+    "environment": {
+      "type": "string",
+      "defaultValue": "POC"
+    },
+    "dataClassification": {
+      "type": "string",
+      "defaultValue": "Synthetic"
+    }
+  },
+  "variables": {
+    "$fxv#0": "0.2.0",
+    "version": "[variables('$fxv#0')]",
+    "packageUri": "[format('https://github.com/SQLBImhugh/document-review-accelerator/releases/download/v{0}/document-review-app-v{1}.zip', variables('version'), variables('version'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/tags",
+      "apiVersion": "2021-04-01",
+      "name": "default",
+      "properties": {
+        "tags": "[union(resourceGroup().tags, createObject('Owner', parameters('owner'), 'CostCenter', parameters('costCenter'), 'Environment', parameters('environment'), 'DataClassification', parameters('dataClassification'), 'Workload', 'document-review-accelerator'))]"
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "document-review-workbench",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "namePrefix": {
+            "value": "[parameters('namePrefix')]"
+          },
+          "location": "[if(empty(parameters('location')), createObject('value', resourceGroup().location), createObject('value', parameters('location')))]",
+          "tenantId": {
+            "value": "[tenant().tenantId]"
+          },
+          "owner": {
+            "value": "[parameters('owner')]"
+          },
+          "costCenter": {
+            "value": "[parameters('costCenter')]"
+          },
+          "environment": {
+            "value": "[parameters('environment')]"
+          },
+          "dataClassification": {
+            "value": "[parameters('dataClassification')]"
+          },
+          "privateNetworking": {
+            "value": false
+          },
+          "publicFrontend": {
+            "value": true
+          },
+          "appPackageUri": {
+            "value": "[variables('packageUri')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.44.1.10279",
+              "templateHash": "5495099929899378132"
+            }
+          },
+          "parameters": {
+            "namePrefix": {
+              "type": "string",
+              "defaultValue": "docreview",
+              "minLength": 3,
+              "maxLength": 30
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]"
+            },
+            "tenantId": {
+              "type": "string",
+              "defaultValue": "[tenant().tenantId]"
+            },
+            "apiClientId": {
+              "type": "string",
+              "defaultValue": ""
+            },
+            "spaClientId": {
+              "type": "string",
+              "defaultValue": ""
+            },
+            "owner": {
+              "type": "string"
+            },
+            "costCenter": {
+              "type": "string",
+              "defaultValue": "POC"
+            },
+            "environment": {
+              "type": "string",
+              "defaultValue": "POC"
+            },
+            "dataClassification": {
+              "type": "string",
+              "defaultValue": "Synthetic"
+            },
+            "privateNetworking": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Opt in to a VNet, private Blob endpoint, and private DNS. The default uses public endpoints with Entra authentication."
+              }
+            },
+            "publicFrontend": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "With private networking, expose only the Entra-protected web frontend. Otherwise the frontend is public by default."
+              }
+            },
+            "keepDemoRunning": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Use only where the documented tenant cost-control exemption is approved."
+              }
+            },
+            "appPackageUri": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional public HTTPS ZIP package. Leave blank when publishing code separately with the CLI."
+              }
+            }
+          },
+          "variables": {
+            "suffix": "[uniqueString(resourceGroup().id)]",
+            "enablePublicFrontend": "[or(not(parameters('privateNetworking')), parameters('publicFrontend'))]",
+            "tags": "[union(createObject('Owner', parameters('owner'), 'CostCenter', parameters('costCenter'), 'Environment', parameters('environment'), 'DataClassification', parameters('dataClassification'), 'Workload', 'document-review-accelerator', 'DeploymentPrefix', parameters('namePrefix')), if(parameters('keepDemoRunning'), createObject('CostControl', 'Ignore'), createObject()))]"
+          },
+          "resources": [
+            {
+              "condition": "[parameters('privateNetworking')]",
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-vnet', parameters('namePrefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[variables('tags')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "10.74.0.0/24"
+                  ]
+                },
+                "subnets": [
+                  {
+                    "name": "app",
+                    "properties": {
+                      "addressPrefix": "10.74.0.0/26",
+                      "defaultOutboundAccess": false,
+                      "delegations": [
+                        {
+                          "name": "web",
+                          "properties": {
+                            "serviceName": "Microsoft.Web/serverFarms"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "name": "endpoints",
+                    "properties": {
+                      "addressPrefix": "10.74.0.64/27",
+                      "defaultOutboundAccess": false,
+                      "privateEndpointNetworkPolicies": "Disabled"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2023-05-01",
+              "name": "[format('dr{0}', variables('suffix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[variables('tags')]",
+              "kind": "StorageV2",
+              "sku": {
+                "name": "Standard_LRS"
+              },
+              "properties": {
+                "publicNetworkAccess": "[if(parameters('privateNetworking'), 'Disabled', 'Enabled')]",
+                "allowBlobPublicAccess": false,
+                "allowSharedKeyAccess": false,
+                "defaultToOAuthAuthentication": true,
+                "minimumTlsVersion": "TLS1_2",
+                "supportsHttpsTrafficOnly": true,
+                "networkAcls": {
+                  "defaultAction": "[if(parameters('privateNetworking'), 'Deny', 'Allow')]",
+                  "bypass": "None"
+                },
+                "encryption": {
+                  "keySource": "Microsoft.Storage",
+                  "services": {
+                    "blob": {
+                      "enabled": true
+                    },
+                    "file": {
+                      "enabled": true
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/blobServices",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}', format('dr{0}', variables('suffix')), 'default')]",
+              "properties": {
+                "isVersioningEnabled": true,
+                "deleteRetentionPolicy": {
+                  "enabled": true,
+                  "days": 7
+                },
+                "containerDeleteRetentionPolicy": {
+                  "enabled": true,
+                  "days": 7
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', format('dr{0}', variables('suffix')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}/{2}', format('dr{0}', variables('suffix')), 'default', 'review')]",
+              "properties": {
+                "publicAccess": "None"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', format('dr{0}', variables('suffix')), 'default')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}/{2}', format('dr{0}', variables('suffix')), 'default', 'documents')]",
+              "properties": {
+                "publicAccess": "None"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', format('dr{0}', variables('suffix')), 'default')]"
+              ]
+            },
+            {
+              "condition": "[parameters('privateNetworking')]",
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[format('privatelink.blob.{0}', environment().suffixes.storage)]",
+              "location": "global",
+              "tags": "[variables('tags')]"
+            },
+            {
+              "condition": "[parameters('privateNetworking')]",
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', format('privatelink.blob.{0}', environment().suffixes.storage), format('{0}-blob-link', parameters('namePrefix')))]",
+              "location": "global",
+              "tags": "[variables('tags')]",
+              "properties": {
+                "registrationEnabled": false,
+                "virtualNetwork": {
+                  "id": "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('namePrefix')))]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]",
+                "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('namePrefix')))]"
+              ]
+            },
+            {
+              "condition": "[parameters('privateNetworking')]",
+              "type": "Microsoft.Network/privateEndpoints",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-blob-pe', parameters('namePrefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[variables('tags')]",
+              "properties": {
+                "subnet": {
+                  "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('{0}-vnet', parameters('namePrefix')), 'endpoints')]"
+                },
+                "privateLinkServiceConnections": [
+                  {
+                    "name": "blob",
+                    "properties": {
+                      "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', format('dr{0}', variables('suffix')))]",
+                      "groupIds": [
+                        "blob"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('namePrefix')))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', format('dr{0}', variables('suffix')))]"
+              ]
+            },
+            {
+              "condition": "[parameters('privateNetworking')]",
+              "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', format('{0}-blob-pe', parameters('namePrefix')), 'default')]",
+              "properties": {
+                "privateDnsZoneConfigs": [
+                  {
+                    "name": "blob",
+                    "properties": {
+                      "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]"
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]",
+                "[resourceId('Microsoft.Network/privateEndpoints', format('{0}-blob-pe', parameters('namePrefix')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Web/serverfarms",
+              "apiVersion": "2024-04-01",
+              "name": "[format('{0}-plan', parameters('namePrefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[variables('tags')]",
+              "kind": "linux",
+              "sku": {
+                "name": "B1",
+                "tier": "Basic",
+                "capacity": 1
+              },
+              "properties": {
+                "reserved": true
+              }
+            },
+            {
+              "type": "Microsoft.Web/sites",
+              "apiVersion": "2024-04-01",
+              "name": "[format('{0}-{1}', parameters('namePrefix'), variables('suffix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[variables('tags')]",
+              "kind": "app,linux",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', format('{0}-plan', parameters('namePrefix')))]",
+                "httpsOnly": true,
+                "clientAffinityEnabled": false,
+                "publicNetworkAccess": "[if(variables('enablePublicFrontend'), 'Enabled', 'Disabled')]",
+                "virtualNetworkSubnetId": "[if(parameters('privateNetworking'), resourceId('Microsoft.Network/virtualNetworks/subnets', format('{0}-vnet', parameters('namePrefix')), 'app'), null())]",
+                "vnetRouteAllEnabled": false,
+                "siteConfig": {
+                  "linuxFxVersion": "NODE|24-lts",
+                  "appCommandLine": "node server/index.mjs",
+                  "alwaysOn": true,
+                  "ftpsState": "Disabled",
+                  "minTlsVersion": "1.2",
+                  "scmMinTlsVersion": "1.2",
+                  "http20Enabled": true,
+                  "healthCheckPath": "/healthz"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('namePrefix')))]",
+                "[resourceId('Microsoft.Web/serverfarms', format('{0}-plan', parameters('namePrefix')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
+              "apiVersion": "2024-04-01",
+              "name": "[format('{0}/{1}', format('{0}-{1}', parameters('namePrefix'), variables('suffix')), 'scm')]",
+              "properties": {
+                "allow": false
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
+              "apiVersion": "2024-04-01",
+              "name": "[format('{0}/{1}', format('{0}-{1}', parameters('namePrefix'), variables('suffix')), 'ftp')]",
+              "properties": {
+                "allow": false
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.Storage/storageAccounts', format('dr{0}', variables('suffix')))]",
+              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', format('dr{0}', variables('suffix'))), resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix'))), 'blob-contributor')]",
+              "properties": {
+                "principalId": "[reference(resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix'))), '2024-04-01', 'full').identity.principalId]",
+                "principalType": "ServicePrincipal",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix')))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', format('dr{0}', variables('suffix')))]"
+              ]
+            },
+            {
+              "condition": "[not(empty(parameters('appPackageUri')))]",
+              "type": "Microsoft.Web/sites/extensions",
+              "apiVersion": "2021-03-01",
+              "name": "[format('{0}/{1}', format('{0}-{1}', parameters('namePrefix'), variables('suffix')), 'onedeploy')]",
+              "properties": {
+                "packageUri": "[parameters('appPackageUri')]",
+                "type": "zip"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix')))]",
+                "[resourceId('Microsoft.Resources/deployments', format('{0}-app-settings', parameters('namePrefix')))]",
+                "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', format('dr{0}', variables('suffix'))), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', format('dr{0}', variables('suffix'))), resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix'))), 'blob-contributor'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', format('dr{0}', variables('suffix')), 'default', 'documents')]",
+                "[resourceId('Microsoft.Web/sites/basicPublishingCredentialsPolicies', format('{0}-{1}', parameters('namePrefix'), variables('suffix')), 'ftp')]",
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', format('dr{0}', variables('suffix')), 'default', 'review')]",
+                "[resourceId('Microsoft.Web/sites/basicPublishingCredentialsPolicies', format('{0}-{1}', parameters('namePrefix'), variables('suffix')), 'scm')]"
+              ]
+            },
+            {
+              "condition": "[and(parameters('privateNetworking'), not(variables('enablePublicFrontend')))]",
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "privatelink.azurewebsites.net",
+              "location": "global",
+              "tags": "[variables('tags')]"
+            },
+            {
+              "condition": "[and(parameters('privateNetworking'), not(variables('enablePublicFrontend')))]",
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', 'privatelink.azurewebsites.net', format('{0}-app-link', parameters('namePrefix')))]",
+              "location": "global",
+              "tags": "[variables('tags')]",
+              "properties": {
+                "registrationEnabled": false,
+                "virtualNetwork": {
+                  "id": "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('namePrefix')))]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.azurewebsites.net')]",
+                "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('namePrefix')))]"
+              ]
+            },
+            {
+              "condition": "[and(parameters('privateNetworking'), not(variables('enablePublicFrontend')))]",
+              "type": "Microsoft.Network/privateEndpoints",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-app-pe', parameters('namePrefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[variables('tags')]",
+              "properties": {
+                "subnet": {
+                  "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('{0}-vnet', parameters('namePrefix')), 'endpoints')]"
+                },
+                "privateLinkServiceConnections": [
+                  {
+                    "name": "app",
+                    "properties": {
+                      "privateLinkServiceId": "[resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix')))]",
+                      "groupIds": [
+                        "sites"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix')))]",
+                "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('namePrefix')))]"
+              ]
+            },
+            {
+              "condition": "[and(parameters('privateNetworking'), not(variables('enablePublicFrontend')))]",
+              "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', format('{0}-app-pe', parameters('namePrefix')), 'default')]",
+              "properties": {
+                "privateDnsZoneConfigs": [
+                  {
+                    "name": "app",
+                    "properties": {
+                      "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.azurewebsites.net')]"
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.azurewebsites.net')]",
+                "[resourceId('Microsoft.Network/privateEndpoints', format('{0}-app-pe', parameters('namePrefix')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "[format('{0}-app-settings', parameters('namePrefix'))]",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "appName": {
+                    "value": "[format('{0}-{1}', parameters('namePrefix'), variables('suffix'))]"
+                  },
+                  "settings": {
+                    "value": "[union(coalesce(list(format('{0}/config/appsettings', resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix')))), '2024-04-01').properties, createObject()), createObject('NODE_ENV', 'production', 'AUTH_TENANT_ID', parameters('tenantId'), 'STORAGE_ACCOUNT_URL', reference(resourceId('Microsoft.Storage/storageAccounts', format('dr{0}', variables('suffix'))), '2023-05-01').primaryEndpoints.blob, 'SCM_DO_BUILD_DURING_DEPLOYMENT', 'false', 'ENABLE_ORYX_BUILD', 'false'), if(empty(parameters('apiClientId')), createObject(), createObject('AUTH_API_CLIENT_ID', parameters('apiClientId'))), if(empty(parameters('spaClientId')), createObject(), createObject('AUTH_SPA_CLIENT_ID', parameters('spaClientId'))))]"
+                  }
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.44.1.10279",
+                      "templateHash": "64746919199131758"
+                    }
+                  },
+                  "parameters": {
+                    "appName": {
+                      "type": "string"
+                    },
+                    "settings": {
+                      "type": "secureObject"
+                    }
+                  },
+                  "resources": [
+                    {
+                      "type": "Microsoft.Web/sites/config",
+                      "apiVersion": "2024-04-01",
+                      "name": "[format('{0}/appsettings', parameters('appName'))]",
+                      "properties": "[parameters('settings')]"
+                    }
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix')))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', format('dr{0}', variables('suffix')))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "appName": {
+              "type": "string",
+              "value": "[format('{0}-{1}', parameters('namePrefix'), variables('suffix'))]"
+            },
+            "appId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix')))]"
+            },
+            "appUrl": {
+              "type": "string",
+              "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix'))), '2024-04-01').defaultHostName)]"
+            },
+            "storageName": {
+              "type": "string",
+              "value": "[format('dr{0}', variables('suffix'))]"
+            },
+            "storageId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts', format('dr{0}', variables('suffix')))]"
+            },
+            "privateNetworking": {
+              "type": "bool",
+              "value": "[parameters('privateNetworking')]"
+            },
+            "publicFrontend": {
+              "type": "bool",
+              "value": "[variables('enablePublicFrontend')]"
+            },
+            "managedIdentityId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Web/sites', format('{0}-{1}', parameters('namePrefix'), variables('suffix'))), '2024-04-01', 'full').identity.principalId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/tags', 'default')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "appName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'document-review-workbench'), '2025-04-01').outputs.appName.value]"
+    },
+    "appUrl": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'document-review-workbench'), '2025-04-01').outputs.appUrl.value]"
+    },
+    "storageName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'document-review-workbench'), '2025-04-01').outputs.storageName.value]"
+    },
+    "identitySetupCommand": {
+      "type": "string",
+      "value": "[format('.\\scripts\\deploy.ps1 -SubscriptionId \"{0}\" -TenantId \"{1}\" -ResourceGroup \"{2}\" -AppName \"{3}\" -IdentityOnly', subscription().subscriptionId, tenant().tenantId, resourceGroup().name, reference(resourceId('Microsoft.Resources/deployments', 'document-review-workbench'), '2025-04-01').outputs.appName.value)]"
+    },
+    "nextStep": {
+      "type": "string",
+      "value": "Run identitySetupCommand from a checkout of this repository. Review APIs stay locked until Microsoft Entra setup is complete."
+    }
+  }
+}

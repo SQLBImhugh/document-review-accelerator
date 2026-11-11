@@ -9,6 +9,13 @@ role. IDs, roles, and actor attribution come from the verified token.
 `GET /healthz`, `GET /api/config`, and the static sign-in files are public.
 They contain no review data. `GET /api/me` reports the verified actor and roles.
 
+A fresh portal deployment has no sign-in client IDs until the operator runs
+identity setup. During that stage, `/api/config` returns
+`mode=identity_setup_required` with null client/scope values, and all other
+`/api` routes return `503 identity_setup_required` before authentication or
+storage access. There is no temporary data-access token or unauthenticated
+review mode. Once configured, the normal Entra token/role rules apply.
+
 | Method and route | Role | Behavior |
 | --- | --- | --- |
 | `POST /api/documents` | Importer | Upload raw `application/pdf`; optional `X-Document-Name`. Returns the canonical descriptor, including SHA-256 ID, page sizes, and page rotations. |
@@ -129,4 +136,4 @@ necessarily an OCR label or an error in the extraction analyzer.
 Errors use JSON `{ "error": "<code>", "message": "<description>" }`.
 Important statuses are `400` invalid input, `401` invalid/missing identity,
 `403` missing role, `409` state/source conflict, `412` stale ETag, `413` body
-limit, `428` missing ETag, and `503` explicit queue limit.
+limit, `428` missing ETag, and `503` pending identity setup or explicit queue limit.

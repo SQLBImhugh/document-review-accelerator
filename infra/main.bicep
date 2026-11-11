@@ -4,9 +4,9 @@ targetScope = 'resourceGroup'
 @maxLength(30)
 param namePrefix string = 'docreview'
 param location string = resourceGroup().location
-param tenantId string
-param apiClientId string
-param spaClientId string
+param tenantId string = tenant().tenantId
+param apiClientId string = ''
+param spaClientId string = ''
 param owner string
 param costCenter string = 'POC'
 param environment string = 'POC'
@@ -17,6 +17,8 @@ param privateNetworking bool = false
 param publicFrontend bool = false
 @description('Use only where the documented tenant cost-control exemption is approved.')
 param keepDemoRunning bool = false
+@description('Optional public HTTPS ZIP package. Leave blank when publishing code separately with the CLI.')
+param appPackageUri string = ''
 
 var suffix = uniqueString(resourceGroup().id)
 var enablePublicFrontend = !privateNetworking || publicFrontend
@@ -26,6 +28,7 @@ var tags = union({
   Environment: environment
   DataClassification: dataClassification
   Workload: 'document-review-accelerator'
+  DeploymentPrefix: namePrefix
 }, keepDemoRunning ? { CostControl: 'Ignore' } : {})
 
 resource network 'Microsoft.Network/virtualNetworks@2024-05-01' = if (privateNetworking) {
@@ -156,16 +159,26 @@ resource app 'Microsoft.Web/sites@2024-04-01' = {
       scmMinTlsVersion: '1.2'
       http20Enabled: true
       healthCheckPath: '/healthz'
-      appSettings: [
-        { name: 'NODE_ENV', value: 'production' }
-        { name: 'AUTH_TENANT_ID', value: tenantId }
-        { name: 'AUTH_API_CLIENT_ID', value: apiClientId }
-        { name: 'AUTH_SPA_CLIENT_ID', value: spaClientId }
-        { name: 'STORAGE_ACCOUNT_URL', value: storage.properties.primaryEndpoints.blob }
-        { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'false' }
-        { name: 'ENABLE_ORYX_BUILD', value: 'false' }
-      ]
     }
+  }
+}
+module appSettings './app-settings.bicep' = {
+  name: '${namePrefix}-app-settings'
+  params: {
+    appName: app.name
+    // Read outside the child deployment to avoid an appsettings self-dependency.
+    settings: union(
+      list('${app.id}/config/appsettings', '2024-04-01').properties ?? {},
+      {
+        NODE_ENV: 'production'
+        AUTH_TENANT_ID: tenantId
+        STORAGE_ACCOUNT_URL: storage.properties.primaryEndpoints.blob
+        SCM_DO_BUILD_DURING_DEPLOYMENT: 'false'
+        ENABLE_ORYX_BUILD: 'false'
+      },
+      empty(apiClientId) ? {} : { AUTH_API_CLIENT_ID: apiClientId },
+      empty(spaClientId) ? {} : { AUTH_SPA_CLIENT_ID: spaClientId }
+    )
   }
 }
 resource scmPolicy 'Microsoft.Web/sites/basicPublishingCredentialsPolicies@2024-04-01' = {
@@ -186,6 +199,17 @@ resource dataRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
   }
+}
+resource code 'Microsoft.Web/sites/extensions@2021-03-01' = if (!empty(appPackageUri)) {
+  parent: app
+  name: 'onedeploy'
+  // The published OneDeploy type omits the package properties supported by App Service.
+  #disable-next-line BCP187
+  properties: {
+    packageUri: appPackageUri
+    type: 'zip'
+  }
+  dependsOn: [appSettings, scmPolicy, ftpPolicy, dataRole, reviews, documents]
 }
 resource appDns 'Microsoft.Network/privateDnsZones@2024-06-01' = if (privateNetworking && !enablePublicFrontend) {
   name: 'privatelink.azurewebsites.net'

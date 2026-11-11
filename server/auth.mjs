@@ -1,8 +1,12 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { fail } from './domain.mjs';
 
+const applicationId = value => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value ?? '') &&
+  value !== '00000000-0000-0000-0000-000000000000';
+export const identityConfigured = config => [config.tenantId, config.apiClientId, config.spaClientId].every(applicationId);
+
 export function entraAuthenticator({ tenantId, apiClientId }, keyResolver) {
-  if (![tenantId, apiClientId].every(value => /^[a-f0-9-]{36}$/i.test(value ?? ''))) throw new Error('Explicit Entra tenant and API application IDs are required.');
+  if (![tenantId, apiClientId].every(applicationId)) throw new Error('Explicit Entra tenant and API application IDs are required.');
   const issuer = `https://login.microsoftonline.com/${tenantId}/v2.0`;
   const keys = keyResolver ?? createRemoteJWKSet(new URL(`https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`));
   return async request => {
