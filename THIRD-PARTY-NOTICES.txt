@@ -1,0 +1,29 @@
+Document Review Accelerator uses third-party packages under their own licenses.
+No application source was copied from the comparison projects listed in
+docs/reuse-assessment.md.
+
+PDF.js (pdfjs-dist)
+Copyright Mozilla Foundation and PDF.js contributors.
+Apache License, Version 2.0.
+The complete license is preserved at node_modules/pdfjs-dist/LICENSE and is
+served at /vendor/pdfjs/LICENSE. The PDF renderer and worker are unmodified.
+https://github.com/mozilla/pdf.js
+
+Microsoft Authentication Library for JavaScript (@azure/msal-browser)
+Copyright Microsoft Corporation. MIT License.
+The package license is preserved in node_modules/@azure/msal-browser/LICENSE.
+https://github.com/AzureAD/microsoft-authentication-library-for-js
+
+Azure Identity and Azure Storage Blob JavaScript SDKs
+Copyright Microsoft Corporation. MIT License.
+Their licenses are preserved in node_modules/@azure/identity/LICENSE and
+node_modules/@azure/storage-blob/LICENSE.
+https://github.com/Azure/azure-sdk-for-js
+
+Express, jose, and pdf-lib use the MIT License. Their complete license texts
+and copyright notices remain in their installed package directories.
+
+The deployment ZIP preserves installed dependency files, including transitive
+package licenses. The source ZIP contains package-lock.json; restoring it
+retrieves the package files and licenses. Do not remove upstream license files
+when creating another distribution.

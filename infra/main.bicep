@@ -1,0 +1,223 @@
+targetScope = 'resourceGroup'
+
+@minLength(3)
+@maxLength(30)
+param namePrefix string = 'docreview'
+param location string = resourceGroup().location
+param tenantId string
+param apiClientId string
+param spaClientId string
+param owner string
+param costCenter string = 'POC'
+param environment string = 'POC'
+param dataClassification string = 'Synthetic'
+@description('Explicit exception for a synthetic internet-facing demo. Data storage remains private.')
+param publicFrontend bool = false
+@description('Use only where the documented tenant cost-control exemption is approved.')
+param keepDemoRunning bool = false
+
+var suffix = uniqueString(resourceGroup().id)
+var tags = union({
+  Owner: owner
+  CostCenter: costCenter
+  Environment: environment
+  DataClassification: dataClassification
+  Workload: 'document-review-accelerator'
+}, keepDemoRunning ? { CostControl: 'Ignore' } : {})
+
+resource network 'Microsoft.Network/virtualNetworks@2024-05-01' = {
+  name: '${namePrefix}-vnet'
+  location: location
+  tags: tags
+  properties: {
+    addressSpace: { addressPrefixes: ['10.74.0.0/24'] }
+    subnets: [
+      {
+        name: 'app'
+        properties: {
+          addressPrefix: '10.74.0.0/26'
+          defaultOutboundAccess: false
+          delegations: [
+            { name: 'web', properties: { serviceName: 'Microsoft.Web/serverFarms' } }
+          ]
+        }
+      }
+      {
+        name: 'endpoints'
+        properties: {
+          addressPrefix: '10.74.0.64/27'
+          defaultOutboundAccess: false
+          privateEndpointNetworkPolicies: 'Disabled'
+        }
+      }
+    ]
+  }
+}
+
+resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: 'dr${suffix}'
+  location: location
+  tags: tags
+  kind: 'StorageV2'
+  sku: { name: 'Standard_LRS' }
+  properties: {
+    publicNetworkAccess: 'Disabled'
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
+    defaultToOAuthAuthentication: true
+    minimumTlsVersion: 'TLS1_2'
+    supportsHttpsTrafficOnly: true
+    networkAcls: { defaultAction: 'Deny', bypass: 'None' }
+    encryption: {
+      keySource: 'Microsoft.Storage'
+      services: { blob: { enabled: true }, file: { enabled: true } }
+    }
+  }
+}
+resource blob 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: storage
+  name: 'default'
+  properties: {
+    isVersioningEnabled: true
+    deleteRetentionPolicy: { enabled: true, days: 7 }
+    containerDeleteRetentionPolicy: { enabled: true, days: 7 }
+  }
+}
+resource reviews 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blob
+  name: 'review'
+  properties: { publicAccess: 'None' }
+}
+resource documents 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blob
+  name: 'documents'
+  properties: { publicAccess: 'None' }
+}
+resource blobDns 'Microsoft.Network/privateDnsZones@2024-06-01' = {
+  name: 'privatelink.blob.${az.environment().suffixes.storage}'
+  location: 'global'
+  tags: tags
+}
+resource blobDnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
+  parent: blobDns
+  name: '${namePrefix}-blob-link'
+  location: 'global'
+  tags: tags
+  properties: { registrationEnabled: false, virtualNetwork: { id: network.id } }
+}
+resource blobEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = {
+  name: '${namePrefix}-blob-pe'
+  location: location
+  tags: tags
+  properties: {
+    subnet: { id: resourceId('Microsoft.Network/virtualNetworks/subnets', network.name, 'endpoints') }
+    privateLinkServiceConnections: [
+      { name: 'blob', properties: { privateLinkServiceId: storage.id, groupIds: ['blob'] } }
+    ]
+  }
+}
+resource blobZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01' = {
+  parent: blobEndpoint
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [{ name: 'blob', properties: { privateDnsZoneId: blobDns.id } }]
+  }
+}
+resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
+  name: '${namePrefix}-plan'
+  location: location
+  tags: tags
+  kind: 'linux'
+  sku: { name: 'B1', tier: 'Basic', capacity: 1 }
+  properties: { reserved: true }
+}
+resource app 'Microsoft.Web/sites@2024-04-01' = {
+  name: '${namePrefix}-${suffix}'
+  location: location
+  tags: tags
+  kind: 'app,linux'
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    serverFarmId: plan.id
+    httpsOnly: true
+    clientAffinityEnabled: false
+    publicNetworkAccess: publicFrontend ? 'Enabled' : 'Disabled'
+    virtualNetworkSubnetId: resourceId('Microsoft.Network/virtualNetworks/subnets', network.name, 'app')
+    vnetRouteAllEnabled: false
+    siteConfig: {
+      linuxFxVersion: 'NODE|24-lts'
+      appCommandLine: 'node server/index.mjs'
+      alwaysOn: true
+      ftpsState: 'Disabled'
+      minTlsVersion: '1.2'
+      scmMinTlsVersion: '1.2'
+      http20Enabled: true
+      healthCheckPath: '/healthz'
+      appSettings: [
+        { name: 'NODE_ENV', value: 'production' }
+        { name: 'AUTH_TENANT_ID', value: tenantId }
+        { name: 'AUTH_API_CLIENT_ID', value: apiClientId }
+        { name: 'AUTH_SPA_CLIENT_ID', value: spaClientId }
+        { name: 'STORAGE_ACCOUNT_URL', value: storage.properties.primaryEndpoints.blob }
+        { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'false' }
+        { name: 'ENABLE_ORYX_BUILD', value: 'false' }
+      ]
+    }
+  }
+}
+resource scmPolicy 'Microsoft.Web/sites/basicPublishingCredentialsPolicies@2024-04-01' = {
+  parent: app
+  name: 'scm'
+  properties: { allow: false }
+}
+resource ftpPolicy 'Microsoft.Web/sites/basicPublishingCredentialsPolicies@2024-04-01' = {
+  parent: app
+  name: 'ftp'
+  properties: { allow: false }
+}
+resource dataRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, app.id, 'blob-contributor')
+  scope: storage
+  properties: {
+    principalId: app.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+  }
+}
+resource appDns 'Microsoft.Network/privateDnsZones@2024-06-01' = if (!publicFrontend) {
+  name: 'privatelink.azurewebsites.net'
+  location: 'global'
+  tags: tags
+}
+resource appDnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = if (!publicFrontend) {
+  parent: appDns
+  name: '${namePrefix}-app-link'
+  location: 'global'
+  tags: tags
+  properties: { registrationEnabled: false, virtualNetwork: { id: network.id } }
+}
+resource appEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = if (!publicFrontend) {
+  name: '${namePrefix}-app-pe'
+  location: location
+  tags: tags
+  properties: {
+    subnet: { id: resourceId('Microsoft.Network/virtualNetworks/subnets', network.name, 'endpoints') }
+    privateLinkServiceConnections: [
+      { name: 'app', properties: { privateLinkServiceId: app.id, groupIds: ['sites'] } }
+    ]
+  }
+}
+resource appZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01' = if (!publicFrontend) {
+  parent: appEndpoint
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [{ name: 'app', properties: { privateDnsZoneId: appDns.id } }]
+  }
+}
+output appName string = app.name
+output appId string = app.id
+output appUrl string = 'https://${app.properties.defaultHostName}'
+output storageName string = storage.name
+output storageId string = storage.id
+output publicFrontend bool = publicFrontend
+output managedIdentityId string = app.identity.principalId

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Human review of extracted values against the original PDF.">
+  <title>Document Review Workbench</title>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/vendor/msal/msal-browser.min.js" defer></script>
+  <script src="/app.mjs" type="module"></script>
+</head>
+<body>
+  <button type="button" class="themetoggle" id="themetoggle" aria-pressed="false">Light mode</button>
+  <header class="masthead">
+    <span class="brand-mark" aria-hidden="true">DR</span>
+    <div><p class="eyebrow">Human review / accelerator POC</p><h1>Document Review Workbench</h1></div>
+    <div class="identity"><span id="identity">Not signed in</span><button id="signin" class="primary" disabled>Sign in</button><button id="signout" hidden>Sign out</button></div>
+  </header>
+  <div class="notice"><b>Review, then release.</b> This service reviews existing extraction results. It does not extract documents or train a model.</div>
+  <div id="message" class="message" role="status" aria-live="polite">Sign in with an assigned Reviewer role to open the queue.</div>
+  <main class="workbench" aria-label="Review workbench">
+    <aside class="queue-panel" aria-label="Review queue">
+      <div class="section-heading"><h2>Review queue</h2><button id="refresh" disabled aria-label="Refresh queue">Refresh</button></div>
+      <label class="search-label" for="search">Find case or requested part</label>
+      <input id="search" type="search" placeholder="Search queue" autocomplete="off">
+      <label class="search-label" for="status-filter">Status</label>
+      <select id="status-filter"><option value="">All statuses</option><option value="needs_review">Needs review</option><option value="in_review">In review</option><option value="needs_information">Needs information</option><option value="validated">Validated</option></select>
+      <p class="micro" id="queue-count">No cases loaded</p>
+      <div id="queue" class="queue-list"><p class="empty">The authenticated queue appears here.</p></div>
+      <p class="queue-foot">POC limit: 500 cases. No extraction service is included.</p>
+    </aside>
+    <section class="source-panel" aria-label="Original PDF evidence">
+      <div class="source-top">
+        <div><p class="eyebrow">01 / Source evidence</p><p id="source-request" class="source-request">Select a review target</p><h2 id="document-name">Original PDF</h2><p id="document-meta" class="micro">Select a case to open its actual source.</p></div>
+        <button id="download-pdf" disabled>Download PDF</button>
+      </div>
+      <div class="viewer-toolbar">
+        <button id="previous-page" disabled aria-label="Previous PDF page">Previous</button>
+        <label for="page">Page</label><select id="page" disabled><option>--</option></select><span id="page-total" class="micro">of --</span>
+        <button id="next-page" disabled aria-label="Next PDF page">Next</button>
+        <label for="zoom">Zoom</label><select id="zoom"><option value="75">75%</option><option value="100" selected>100%</option><option value="125">125%</option><option value="150">150%</option><option value="200">200%</option></select>
+      </div>
+      <div id="pdf-scroll" class="pdf-scroll">
+        <div id="pdf-empty" class="source-empty"><span class="crosshair" aria-hidden="true">+</span><h3>Source-linked review</h3><p>Select a field to locate its evidence on the original PDF.</p></div>
+        <div id="pdf-sheet" hidden><canvas id="pdf-canvas" aria-label="Original source PDF page"></canvas><svg id="evidence-overlay" viewBox="0 0 1 1" preserveAspectRatio="none" aria-label="Selected source highlights"></svg></div>
+      </div>
+      <div id="source-legend" class="source-legend"><span class="legend-line"></span><span id="source-caption">Highlights use the imported page and source polygon, not a generated image.</span></div>
+    </section>
+    <section class="review-panel" aria-label="Field review">
+      <div class="section-heading"><div><p class="eyebrow">02 / Requested part</p><h2 id="case-title">No case selected</h2></div><span id="case-status" class="tag">Waiting</span></div>
+      <p class="micro" id="case-meta">Original proposals are retained with every decision.</p>
+      <p id="field-summary" class="field-summary">Select a case to see required reviews.</p>
+      <div id="fields" class="field-list" aria-label="Extracted fields"></div>
+      <section id="inspector" hidden aria-label="Selected field decision">
+        <div class="inspector-heading"><h3 id="field-title"></h3><span id="field-kind" class="micro"></span></div>
+        <div class="review-target"><span>Requested part</span><strong id="requested-part"></strong><span id="requested-variant"></span></div>
+        <div id="review-callout" class="review-callout" role="status" hidden><strong id="review-state-label"></strong><div id="review-explanation"></div></div>
+        <details id="routing-signals" class="routing-signals"><summary>Original routing signals and confidence</summary>
+          <div id="field-reasons" class="reason-list"></div>
+          <div class="signals"><div><span>Model review score</span><b id="model-score">--</b><small>Routing signal, not measured accuracy</small></div><div><span>Native extraction confidence</span><b id="native-score">--</b><small>Separate upstream signal</small></div></div>
+        </details>
+        <label for="reviewed-value"><span id="value-label">Value to review</span> <span id="field-unit"></span></label>
+        <input id="reviewed-value" autocomplete="off">
+        <p id="original-value" class="micro"></p>
+        <fieldset><legend>Supporting source <span class="micro">Choose the correct row or region</span></legend><div id="evidence-list"></div></fieldset>
+        <label for="reason">Review note <span class="micro">Optional for Accept original</span></label>
+        <p id="reason-help" class="micro">Required for Save correction or Needs information.</p>
+        <textarea id="reason" rows="2" maxlength="1000" aria-describedby="reason-help" placeholder="For a correction, explain what changed. For Needs information, state what prevents verification."></textarea>
+        <div class="decision-actions"><button id="accept">Accept original</button><button id="correct" class="primary">Save correction</button><button id="unresolved" aria-describedby="unresolved-help">Needs information</button></div>
+        <p id="unresolved-help" class="micro">Needs information keeps this field unresolved and blocks case sign-off. It does not notify anyone or rerun extraction.</p>
+      </section>
+      <details class="audit-panel"><summary>Audit history <span id="audit-count"></span></summary><ol id="audit"></ol></details>
+    </section>
+  </main>
+  <footer class="release-bar">
+    <div><p class="eyebrow">03 / Release gate</p><strong id="release-state">No case selected</strong><p id="release-detail" class="micro">All blocking fields need a sourced decision before explicit sign-off.</p></div>
+    <div class="release-actions"><button id="export" disabled>Export reviewed JSON</button><button id="feedback" disabled>Export feedback candidate</button><button id="signoff" class="primary" disabled>Sign off case</button></div>
+  </footer>
+</body>
+</html>

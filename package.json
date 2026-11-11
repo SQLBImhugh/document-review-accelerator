@@ -1,0 +1,26 @@
+{
+  "name": "document-review-accelerator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A standalone human-review workbench for existing document extraction results.",
+  "license": "MIT",
+  "engines": { "node": ">=24 <27" },
+  "scripts": {
+    "start": "node server/index.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:e2e": "playwright test",
+    "seed": "node scripts/seed.mjs",
+    "check": "node --check server/index.mjs && node --check public/app.mjs && node --check public/auth.js && node --check public/theme.js"
+  },
+  "dependencies": {
+    "@azure/identity": "4.14.1",
+    "@azure/msal-browser": "5.27.0",
+    "@azure/storage-blob": "12.34.0",
+    "express": "5.3.0",
+    "jose": "6.2.15",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.5.438"
+  },
+  "devDependencies": { "@playwright/test": "1.64.1" }
+}
