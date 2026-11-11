@@ -175,6 +175,7 @@ module appSettings './app-settings.bicep' = {
         STORAGE_ACCOUNT_URL: storage.properties.primaryEndpoints.blob
         SCM_DO_BUILD_DURING_DEPLOYMENT: 'false'
         ENABLE_ORYX_BUILD: 'false'
+        WEBSITE_RUN_FROM_PACKAGE: '1'
       },
       empty(apiClientId) ? {} : { AUTH_API_CLIENT_ID: apiClientId },
       empty(spaClientId) ? {} : { AUTH_SPA_CLIENT_ID: spaClientId }

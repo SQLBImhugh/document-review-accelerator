@@ -47,7 +47,7 @@ retraining or a ready-made native model-label file.
 
 ## Deploy
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FSQLBImhugh%2Fdocument-review-accelerator%2Fmain%2Finfra%2Fazuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FSQLBImhugh%2Fdocument-review-accelerator%2Fv0.2.1%2Finfra%2Fazuredeploy.json)
 
 ### Portal deployment
 
@@ -60,6 +60,8 @@ retraining or a ready-made native model-label file.
 4. Complete the identity setup below, then sign in at `appUrl`.
 
 The button uses public HTTPS endpoints and creates no private network resources.
+App Service mounts the complete ZIP as read-only application content; documents
+and review state remain in Blob Storage, not the application directory.
 It does not grant Microsoft Graph permissions to a cloud identity or create an
 application secret. Until identity setup is complete, the page shows setup
 guidance and **every review/document API is locked**, including requests with a
@@ -242,10 +244,12 @@ Deployment-option tests use PowerShell 7 and do not call Azure or change resourc
 `npm run build:portal` regenerates `infra\azuredeploy.json` from
 `infra\azuredeploy.bicep` and the shared main template. Its runtime package URL
 uses the version from `package.json`, for example
-`releases/download/v0.2.0/document-review-app-v0.2.0.zip`.
+`releases/download/v0.2.1/document-review-app-v0.2.1.zip`.
 The matching GitHub release includes a SHA-256 checksum. Regenerate the template
 and publish the matching built runtime ZIP before releasing a new button version;
 the GitHub source-code ZIP is not an executable deployment package.
+The button pins a release tag, not the moving main branch. Update its tag only
+when the corresponding template and runtime have completed deployment verification.
 After `.\scripts\package.ps1`, run `npm run test:package` to boot the actual ZIP
 on a temporary local port, verify locked APIs and browser assets, and stop it.
 
