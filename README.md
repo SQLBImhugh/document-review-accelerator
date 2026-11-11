@@ -47,7 +47,7 @@ retraining or a ready-made native model-label file.
 
 ## Deploy
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FSQLBImhugh%2Fdocument-review-accelerator%2Fv0.2.1%2Finfra%2Fazuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FSQLBImhugh%2Fdocument-review-accelerator%2Fv0.2.2%2Finfra%2Fazuredeploy.json)
 
 ### Portal deployment
 
@@ -62,6 +62,8 @@ retraining or a ready-made native model-label file.
 The button uses public HTTPS endpoints and creates no private network resources.
 App Service mounts the complete ZIP as read-only application content; documents
 and review state remain in Blob Storage, not the application directory.
+The portal template points directly at the versioned package URL, avoiding an
+unpack/build step in the deployment service.
 It does not grant Microsoft Graph permissions to a cloud identity or create an
 application secret. Until identity setup is complete, the page shows setup
 guidance and **every review/document API is locked**, including requests with a
@@ -174,6 +176,8 @@ After a page reload, sign in again; saved reviews remain in Blob Storage.
 A credential-free receipt is written to `.local\deployment.json`. Rerunning the
 same deployment reuses its applications and resources. Keep the receipt for
 teardown; do not add `.local` to a customer package.
+Update a portal-deployed app through its versioned portal template, not the
+local-ZIP CLI deployment path. Identity-only setup can be rerun independently.
 Reuse the same networking options when updating an existing deployment.
 Older receipts represent private-networked deployments. The script refuses
 silent mode changes or adoption of an existing group without its receipt;
@@ -244,7 +248,7 @@ Deployment-option tests use PowerShell 7 and do not call Azure or change resourc
 `npm run build:portal` regenerates `infra\azuredeploy.json` from
 `infra\azuredeploy.bicep` and the shared main template. Its runtime package URL
 uses the version from `package.json`, for example
-`releases/download/v0.2.1/document-review-app-v0.2.1.zip`.
+`releases/download/v0.2.2/document-review-app-v0.2.2.zip`.
 The matching GitHub release includes a SHA-256 checksum. Regenerate the template
 and publish the matching built runtime ZIP before releasing a new button version;
 the GitHub source-code ZIP is not an executable deployment package.

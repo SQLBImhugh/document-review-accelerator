@@ -117,7 +117,7 @@ try {
                 'webapp show' { return '{"name":"docreview-test","location":"centralus","defaultHostName":"docreview-test.azurewebsites.net","publicNetworkAccess":"Enabled","tags":{"Workload":"document-review-accelerator","DeploymentPrefix":"docreview"}}' }
                 'webapp config' {
                     if ($args[3] -eq 'list') {
-                        return '[{"name":"AUTH_TENANT_ID","value":"test-tenant"},{"name":"STORAGE_ACCOUNT_URL","value":"https://demo.blob.core.windows.net/"}]'
+                        return '[{"name":"AUTH_TENANT_ID","value":"test-tenant"},{"name":"STORAGE_ACCOUNT_URL","value":"https://demo.blob.core.windows.net/"},{"name":"WEBSITE_RUN_FROM_PACKAGE","value":"https://github.com/example/releases/download/v1/app.zip"}]'
                     }
                     if ($args[3] -ne 'set') { throw 'Unexpected app configuration operation.' }
                     $state.settings = @($args | Where-Object { $_ -like 'AUTH_*' })
@@ -161,12 +161,23 @@ try {
         & (Join-Path $fixture 'scripts\deploy.ps1') -SubscriptionId 'test-subscription' -TenantId 'test-tenant' -AppName 'docreview-test' -IdentityOnly
         $receipt = Get-Content -Raw (Join-Path $fixture '.local\deployment.json') | ConvertFrom-Json
         if ($receipt.appName -ne 'docreview-test' -or $receipt.storageName -ne 'demo' -or
-            $receipt.privateNetworking -ne $false -or $receipt.publicFrontend -ne $true -or
+            $receipt.privateNetworking -ne $false -or $receipt.publicFrontend -ne $true -or $receipt.deploymentMethod -ne 'portal_package_url' -or
             $state.settings.Count -ne 3 -or $state.graphPatches -ne 5 -or $state.slept -ne 5 -or $state.configProbes -ne 2) {
             throw 'Identity-only setup did not preserve the target, complete identity configuration, and wait for the configured worker.'
         }
     }
+    & {
+        function az { throw 'A portal-to-local-package switch reached Azure before being rejected.' }
+        $rejected = $false
+        try {
+            & (Join-Path $fixture 'scripts\deploy.ps1') -SubscriptionId 'test-subscription' -TenantId 'test-tenant'
+        } catch {
+            if ($_.Exception.Message -notlike 'This app uses the portal remote-package deployment*') { throw }
+            $rejected = $true
+        }
+        if (-not $rejected) { throw 'An existing remote-package app could silently change deployment method.' }
+    }
 } finally {
     Remove-Item -LiteralPath $fixture -Recurse -Force
 }
-Write-Host 'Deployment topology and identity setup passed (17 cases; Azure calls mocked).'
+Write-Host 'Deployment topology and identity setup passed (18 cases; Azure calls mocked).'

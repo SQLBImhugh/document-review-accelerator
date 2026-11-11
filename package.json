@@ -1,6 +1,6 @@
 {
   "name": "document-review-accelerator",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "A standalone human-review workbench for existing document extraction results.",

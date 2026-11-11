@@ -175,7 +175,7 @@ module appSettings './app-settings.bicep' = {
         STORAGE_ACCOUNT_URL: storage.properties.primaryEndpoints.blob
         SCM_DO_BUILD_DURING_DEPLOYMENT: 'false'
         ENABLE_ORYX_BUILD: 'false'
-        WEBSITE_RUN_FROM_PACKAGE: '1'
+        WEBSITE_RUN_FROM_PACKAGE: empty(appPackageUri) ? '1' : appPackageUri
       },
       empty(apiClientId) ? {} : { AUTH_API_CLIENT_ID: apiClientId },
       empty(spaClientId) ? {} : { AUTH_SPA_CLIENT_ID: spaClientId }
@@ -200,17 +200,6 @@ resource dataRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
   }
-}
-resource code 'Microsoft.Web/sites/extensions@2021-03-01' = if (!empty(appPackageUri)) {
-  parent: app
-  name: 'onedeploy'
-  // The published OneDeploy type omits the package properties supported by App Service.
-  #disable-next-line BCP187
-  properties: {
-    packageUri: appPackageUri
-    type: 'zip'
-  }
-  dependsOn: [appSettings, scmPolicy, ftpPolicy, dataRole, reviews, documents]
 }
 resource appDns 'Microsoft.Network/privateDnsZones@2024-06-01' = if (privateNetworking && !enablePublicFrontend) {
   name: 'privatelink.azurewebsites.net'

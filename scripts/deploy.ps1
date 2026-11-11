@@ -76,6 +76,9 @@ if (Test-Path $receiptPath) {
     $previous = Get-Content -Raw $receiptPath | ConvertFrom-Json
     if ($previous.tenantId -ne $TenantId -or $previous.subscriptionId -ne $SubscriptionId -or $previous.resourceGroup -ne $ResourceGroup -or
         (-not $IdentityOnly -and $previous.namePrefix -ne $NamePrefix)) { throw 'This checkout has a receipt for another deployment. Use a separate checkout.' }
+    if (-not $IdentityOnly -and $previous.deploymentMethod -eq 'portal_package_url') {
+        throw 'This app uses the portal remote-package deployment. Update it with the versioned portal template; -IdentityOnly remains available for sign-in setup.'
+    }
 }
 $networking = if ($IdentityOnly) { $null } else { Resolve-Networking ([bool]$PrivateNetworking) ([bool]$PublicFrontend) $previous }
 Assert-Tenant
@@ -99,6 +102,7 @@ if ($IdentityOnly) {
     $settings = Invoke-AzJson @('webapp', 'config', 'appsettings', 'list', '--resource-group', $ResourceGroup, '--name', $AppName)
     $appTenant = ($settings | Where-Object name -eq 'AUTH_TENANT_ID').value
     $storageUrl = ($settings | Where-Object name -eq 'STORAGE_ACCOUNT_URL').value
+    $runPackage = ($settings | Where-Object name -eq 'WEBSITE_RUN_FROM_PACKAGE').value
     if ($appTenant -ne $TenantId) { throw 'The existing app belongs to another configured Entra tenant.' }
     if ($storageUrl -notmatch '^https://([a-z0-9]+)\.blob\.core\.windows\.net/?$') { throw 'The app storage endpoint is not an expected Azure Blob account.' }
     $storageName = $Matches[1]
@@ -160,6 +164,7 @@ $receipt = [ordered]@{
     apiServicePrincipalId = $apiSP.id; reviewerRoleId = $reviewerRole; importerRoleId = $importerRole
     resourceAppScope = "api://$($api.appId)/Review.Access"; createdAt = [DateTime]::UtcNow.ToString('o')
     privateNetworking = $networking.privateNetworking; publicFrontend = $networking.publicFrontend
+    deploymentMethod = if ($IdentityOnly -and $runPackage -like 'https://*') { 'portal_package_url' } else { 'cli_zip' }
 }
 $receipt | ConvertTo-Json -Depth 10 | Set-Content $receiptPath -Encoding utf8
 if ($IdentityOnly) {
