@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node server/index.mjs",
     "test": "node --test test/*.test.mjs",
+    "test:deployment": "pwsh -NoProfile -File test/deployment.test.ps1",
     "test:e2e": "playwright test",
     "seed": "node scripts/seed.mjs",
     "check": "node --check server/index.mjs && node --check public/app.mjs && node --check public/auth.js && node --check public/theme.js"

@@ -11,12 +11,15 @@ param owner string
 param costCenter string = 'POC'
 param environment string = 'POC'
 param dataClassification string = 'Synthetic'
-@description('Explicit exception for a synthetic internet-facing demo. Data storage remains private.')
+@description('Opt in to a VNet, private Blob endpoint, and private DNS. The default uses public endpoints with Entra authentication.')
+param privateNetworking bool = false
+@description('With private networking, expose only the Entra-protected web frontend. Otherwise the frontend is public by default.')
 param publicFrontend bool = false
 @description('Use only where the documented tenant cost-control exemption is approved.')
 param keepDemoRunning bool = false
 
 var suffix = uniqueString(resourceGroup().id)
+var enablePublicFrontend = !privateNetworking || publicFrontend
 var tags = union({
   Owner: owner
   CostCenter: costCenter
@@ -25,7 +28,7 @@ var tags = union({
   Workload: 'document-review-accelerator'
 }, keepDemoRunning ? { CostControl: 'Ignore' } : {})
 
-resource network 'Microsoft.Network/virtualNetworks@2024-05-01' = {
+resource network 'Microsoft.Network/virtualNetworks@2024-05-01' = if (privateNetworking) {
   name: '${namePrefix}-vnet'
   location: location
   tags: tags
@@ -61,13 +64,13 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   kind: 'StorageV2'
   sku: { name: 'Standard_LRS' }
   properties: {
-    publicNetworkAccess: 'Disabled'
+    publicNetworkAccess: privateNetworking ? 'Disabled' : 'Enabled'
     allowBlobPublicAccess: false
     allowSharedKeyAccess: false
     defaultToOAuthAuthentication: true
     minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
-    networkAcls: { defaultAction: 'Deny', bypass: 'None' }
+    networkAcls: { defaultAction: privateNetworking ? 'Deny' : 'Allow', bypass: 'None' }
     encryption: {
       keySource: 'Microsoft.Storage'
       services: { blob: { enabled: true }, file: { enabled: true } }
@@ -93,34 +96,34 @@ resource documents 'Microsoft.Storage/storageAccounts/blobServices/containers@20
   name: 'documents'
   properties: { publicAccess: 'None' }
 }
-resource blobDns 'Microsoft.Network/privateDnsZones@2024-06-01' = {
+resource blobDns 'Microsoft.Network/privateDnsZones@2024-06-01' = if (privateNetworking) {
   name: 'privatelink.blob.${az.environment().suffixes.storage}'
   location: 'global'
   tags: tags
 }
-resource blobDnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
+resource blobDnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = if (privateNetworking) {
   parent: blobDns
   name: '${namePrefix}-blob-link'
   location: 'global'
   tags: tags
-  properties: { registrationEnabled: false, virtualNetwork: { id: network.id } }
+  properties: { registrationEnabled: false, virtualNetwork: { id: network!.id } }
 }
-resource blobEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = {
+resource blobEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = if (privateNetworking) {
   name: '${namePrefix}-blob-pe'
   location: location
   tags: tags
   properties: {
-    subnet: { id: resourceId('Microsoft.Network/virtualNetworks/subnets', network.name, 'endpoints') }
+    subnet: { id: resourceId('Microsoft.Network/virtualNetworks/subnets', network!.name, 'endpoints') }
     privateLinkServiceConnections: [
       { name: 'blob', properties: { privateLinkServiceId: storage.id, groupIds: ['blob'] } }
     ]
   }
 }
-resource blobZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01' = {
+resource blobZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01' = if (privateNetworking) {
   parent: blobEndpoint
   name: 'default'
   properties: {
-    privateDnsZoneConfigs: [{ name: 'blob', properties: { privateDnsZoneId: blobDns.id } }]
+    privateDnsZoneConfigs: [{ name: 'blob', properties: { privateDnsZoneId: blobDns!.id } }]
   }
 }
 resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
@@ -141,8 +144,8 @@ resource app 'Microsoft.Web/sites@2024-04-01' = {
     serverFarmId: plan.id
     httpsOnly: true
     clientAffinityEnabled: false
-    publicNetworkAccess: publicFrontend ? 'Enabled' : 'Disabled'
-    virtualNetworkSubnetId: resourceId('Microsoft.Network/virtualNetworks/subnets', network.name, 'app')
+    publicNetworkAccess: enablePublicFrontend ? 'Enabled' : 'Disabled'
+    virtualNetworkSubnetId: privateNetworking ? resourceId('Microsoft.Network/virtualNetworks/subnets', network!.name, 'app') : null
     vnetRouteAllEnabled: false
     siteConfig: {
       linuxFxVersion: 'NODE|24-lts'
@@ -184,34 +187,34 @@ resource dataRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
   }
 }
-resource appDns 'Microsoft.Network/privateDnsZones@2024-06-01' = if (!publicFrontend) {
+resource appDns 'Microsoft.Network/privateDnsZones@2024-06-01' = if (privateNetworking && !enablePublicFrontend) {
   name: 'privatelink.azurewebsites.net'
   location: 'global'
   tags: tags
 }
-resource appDnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = if (!publicFrontend) {
+resource appDnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = if (privateNetworking && !enablePublicFrontend) {
   parent: appDns
   name: '${namePrefix}-app-link'
   location: 'global'
   tags: tags
-  properties: { registrationEnabled: false, virtualNetwork: { id: network.id } }
+  properties: { registrationEnabled: false, virtualNetwork: { id: network!.id } }
 }
-resource appEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = if (!publicFrontend) {
+resource appEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = if (privateNetworking && !enablePublicFrontend) {
   name: '${namePrefix}-app-pe'
   location: location
   tags: tags
   properties: {
-    subnet: { id: resourceId('Microsoft.Network/virtualNetworks/subnets', network.name, 'endpoints') }
+    subnet: { id: resourceId('Microsoft.Network/virtualNetworks/subnets', network!.name, 'endpoints') }
     privateLinkServiceConnections: [
       { name: 'app', properties: { privateLinkServiceId: app.id, groupIds: ['sites'] } }
     ]
   }
 }
-resource appZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01' = if (!publicFrontend) {
+resource appZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01' = if (privateNetworking && !enablePublicFrontend) {
   parent: appEndpoint
   name: 'default'
   properties: {
-    privateDnsZoneConfigs: [{ name: 'app', properties: { privateDnsZoneId: appDns.id } }]
+    privateDnsZoneConfigs: [{ name: 'app', properties: { privateDnsZoneId: appDns!.id } }]
   }
 }
 output appName string = app.name
@@ -219,5 +222,6 @@ output appId string = app.id
 output appUrl string = 'https://${app.properties.defaultHostName}'
 output storageName string = storage.name
 output storageId string = storage.id
-output publicFrontend bool = publicFrontend
+output privateNetworking bool = privateNetworking
+output publicFrontend bool = enablePublicFrontend
 output managedIdentityId string = app.identity.principalId

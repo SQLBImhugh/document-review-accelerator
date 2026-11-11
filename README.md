@@ -4,10 +4,12 @@ A standalone human-review workbench for an existing document extraction pipeline
 Reviewers open the actual PDF, inspect linked source regions, accept or correct
 fields, record missing information, and explicitly sign off the case.
 
-The deployment contains **one Node.js web app, one private Blob Storage account,
-and their network resources**. It does not deploy ingestion, OCR, an agent,
-Content Understanding, Document Intelligence, a database, or a model-training
-service.
+The default deployment contains **one Node.js web app and one Blob Storage
+account, using public HTTPS endpoints with Entra authentication**. It creates
+no VNet, private endpoints, private DNS zones, or network integration.
+Private networking is optional. The accelerator does not deploy ingestion, OCR,
+an agent, Content Understanding, Document Intelligence, a database, or a
+model-training service.
 
 ## Review flow
 
@@ -68,28 +70,34 @@ npm test
   -NamePrefix "docreview"
 ```
 
-**Private frontend is the default.** Run the deployment agent on a network that
-can reach the new private endpoint and resolve its private DNS. Connect that
-network to the created VNet, or adapt `infra\main.bicep` to existing approved
-subnets and DNS. Network peering/VPN is not provisioned by this accelerator.
-The script cannot deploy the code ZIP through a private SCM endpoint that the
-agent cannot reach.
+**Public networking is the default.** Deploy from a workstation or build agent
+with Azure access; no private network connection or DNS setup is required.
+Public endpoints do not mean public documents: anonymous Blob access, shared
+keys, and basic publishing remain disabled. The app uses managed identity for
+Blob access, and every data API requires an assigned Entra application role.
 
-For an explicitly approved, synthetic internet-facing demonstration:
+Add `-Seed` to create ten synthetic review cases and a real two-page PDF.
+The sign-in shell and health/configuration endpoints are publicly reachable;
+review data is not anonymously accessible.
 
-```powershell
-.\scripts\deploy.ps1 `
-  -SubscriptionId "<subscription-guid>" `
-  -TenantId "<tenant-guid>" `
-  -ResourceGroup "rg-document-review-poc" `
-  -NamePrefix "docreview" `
-  -PublicFrontend -Seed
-```
+### Optional private networking
 
-`-PublicFrontend` exposes the sign-in shell and health/configuration endpoints.
-Every review, document, and mutation API still requires a valid Entra access
-token and the appropriate application role. Storage remains private.
-`-Seed` creates ten synthetic review cases and a real two-page PDF.
+| Options | Web frontend | Blob endpoint | Network resources |
+| --- | --- | --- | --- |
+| No networking switches | Public, Entra-protected data APIs | Public, Entra-only data access | None |
+| `-PrivateNetworking` | Private | Private | VNet, two private endpoints, private DNS |
+| `-PrivateNetworking -PublicFrontend` | Public, Entra-protected data APIs | Private | VNet, one private endpoint, private DNS |
+
+Use `-PrivateNetworking` in tenants whose governance requires private endpoints
+or automatically disables public network access. The public default will not
+remain reachable in those environments; do not disable their governance
+controls. `-PublicFrontend` only affects the optional private-networking mode.
+
+For a private frontend, run the deployment agent on a network that can reach
+the new private endpoint and resolve its private DNS. Connect that network to
+the created VNet, or adapt `infra\main.bicep` to approved subnets and DNS.
+Network peering/VPN is not provisioned. The script cannot publish through a
+private SCM endpoint that its agent cannot reach.
 
 The script creates two single-tenant registrations: a browser SPA using PKCE
 and a role-protected API. It assigns the deployment user `Reviewer` and
@@ -101,23 +109,29 @@ After a page reload, sign in again; saved reviews remain in Blob Storage.
 A credential-free receipt is written to `.local\deployment.json`. Rerunning the
 same deployment reuses its applications and resources. Keep the receipt for
 teardown; do not add `.local` to a customer package.
+Reuse the same networking options when updating an existing deployment.
+Older receipts represent private-networked deployments. The script refuses
+silent mode changes or adoption of an existing group without its receipt;
+use a fresh resource group and checkout for a different networking mode.
 
 ## Cost and network behavior
 
-The B1 Linux plan runs continuously. The approved synthetic-demo estimate checked
-November 10, 2026 was about **$20.94/month, or $0.70/day**, before usage and tax:
-plan $0.018/hour, one private endpoint about $0.01/hour, and private DNS about
-$0.50/month. The default private frontend adds a second private endpoint and
-another DNS zone, approximately $7.80/month more. Verify current regional prices
-before deployment. Storage, versions, transactions, and transfer are additional.
-There are no paid software-license add-ons.
+The B1 Linux plan runs continuously. Using the example rates checked
+November 10, 2026, the public default has about **$13.14/month** of fixed compute
+cost ($0.018/hour at 730 hours), with no private endpoint or private DNS charges.
+Storage, versions, transactions, transfer, and tax are additional.
 
-Private Blob traffic uses App Service VNet integration and private DNS.
-`vnetRouteAllEnabled=false` leaves Entra/JWK traffic on App Service's documented
-platform egress; the delegated subnet has `defaultOutboundAccess=false`.
-No implicit VNet internet egress or NAT Gateway is assumed. An organization that
-requires all traffic through its VNet must supply explicit outbound access and
-update this setting.
+At those example rates, private Blob with a public frontend adds approximately
+$7.80/month; a private frontend adds approximately $15.60/month in total for two
+private endpoints and two DNS zones. Verify current regional prices before
+deployment. There are no paid software-license add-ons.
+
+Public mode uses App Service platform egress and public HTTPS Blob endpoints.
+In private mode, Blob traffic uses VNet integration and private DNS.
+`vnetRouteAllEnabled=false` keeps Entra/JWK traffic on platform egress; the
+delegated subnet has `defaultOutboundAccess=false`. No NAT Gateway or implicit
+VNet internet egress is assumed. An organization that routes all traffic through
+its VNet must supply explicit outbound access and update this setting.
 
 Tenant-specific cost automation can stop or resize demo resources. The optional
 `-KeepDemoRunning` switch adds `CostControl=Ignore` to these dedicated resources.
@@ -138,16 +152,19 @@ for Storage or Microsoft Graph. A reviewer identity needs `Reviewer`.
 All assigned reviewers can see all cases in this POC; there is no per-customer,
 per-case, or tenant-to-tenant sharing layer.
 
-To run the production entry point locally, set the variables in `.env.example`
-in the process and run `npm start`. It uses managed identity and needs network
-access to private storage. `.env.example` is documentation, not automatically
-loaded. There is no unauthenticated production mode or filesystem fallback.
+To run the production entry point on a managed-identity-enabled host, set the
+variables in `.env.example` in the process and run `npm start`. That host needs
+access to the selected Blob endpoint; private mode additionally needs the
+private network and DNS connection. `.env.example` is documentation, not
+automatically loaded. There is no unauthenticated production mode or filesystem
+fallback.
 
 ## Checks and packaging
 
 ```powershell
 npm run check
 npm test
+npm run test:deployment
 npm run test:e2e
 az bicep build --file .\infra\main.bicep --stdout | Out-Null
 .\scripts\package.ps1 -Source
@@ -156,6 +173,7 @@ az bicep build --file .\infra\main.bicep --stdout | Out-Null
 Browser tests use installed Microsoft Edge through Playwright; no browser
 download is needed. The test-only host binds to loopback and injects an isolated
 identity/store. It is not part of the production runtime ZIP.
+Deployment-option tests use PowerShell 7 and do not call Azure or change resources.
 
 `dist\document-review-accelerator-source.zip` contains reusable source, tests,
 contracts, and deployment scripts. It excludes customer documents, deployment

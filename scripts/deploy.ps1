@@ -8,6 +8,7 @@ param(
     [string]$CostCenter = 'POC',
     [string]$Environment = 'POC',
     [string]$DataClassification = 'Synthetic',
+    [switch]$PrivateNetworking,
     [switch]$PublicFrontend,
     [switch]$KeepDemoRunning,
     [switch]$Seed
@@ -48,22 +49,38 @@ function Ensure-SP([string]$AppId) {
     if ($found.value.Count) { return $found.value[0] }
     Graph 'POST' 'servicePrincipals' @{ appId = $AppId }
 }
+function Resolve-Networking([bool]$PrivateNetworking, [bool]$PublicFrontend, $Previous) {
+    $frontend = -not $PrivateNetworking -or $PublicFrontend
+    if ($null -ne $Previous) {
+        $previousPrivate = if ($Previous.PSObject.Properties.Name -contains 'privateNetworking') {
+            [bool]$Previous.privateNetworking
+        } else { $true }
+        if ($previousPrivate -ne $PrivateNetworking -or
+            ($Previous.PSObject.Properties.Name -contains 'publicFrontend' -and [bool]$Previous.publicFrontend -ne $frontend)) {
+            throw 'The networking mode differs from the saved deployment. Reuse its original -PrivateNetworking/-PublicFrontend options, or use a fresh resource group and checkout for a different mode.'
+        }
+    }
+    @{ privateNetworking = $PrivateNetworking; publicFrontend = $frontend }
+}
 if ($NamePrefix -notmatch '^[a-z][a-z0-9-]{2,29}$' -or $ResourceGroup -notmatch '^[a-zA-Z0-9._()-]{1,90}$') { throw 'Use a lowercase deployment prefix (3-30 characters) and a valid resource group name.' }
-if ($Seed -and -not $PublicFrontend) { Write-Host 'Private deployment: the seed caller must be on the connected private network.' }
+$local = Join-Path $root '.local'
+$receiptPath = Join-Path $local 'deployment.json'
+$previous = $null
+if (Test-Path $receiptPath) {
+    $previous = Get-Content -Raw $receiptPath | ConvertFrom-Json
+    if ($previous.tenantId -ne $TenantId -or $previous.subscriptionId -ne $SubscriptionId -or $previous.resourceGroup -ne $ResourceGroup -or $previous.namePrefix -ne $NamePrefix) { throw 'This checkout has a receipt for another deployment. Use a separate checkout.' }
+}
+$networking = Resolve-Networking ([bool]$PrivateNetworking) ([bool]$PublicFrontend) $previous
+if ($Seed -and -not $networking.publicFrontend) { Write-Host 'Private deployment: the seed caller must be on the connected private network.' }
 Assert-Tenant
 $groupExists = Invoke-AzJson @('group', 'exists', '--name', $ResourceGroup)
 if ($groupExists) {
     $existingGroup = Invoke-AzJson @('group', 'show', '--name', $ResourceGroup)
     if ($existingGroup.tags.Workload -ne 'document-review-accelerator') { throw 'Refusing to adopt a resource group without this accelerator ownership tag.' }
+    if ($null -eq $previous) { throw 'This resource group already exists, but its deployment receipt is missing. Restore the original ignored receipt before updating it, or use a fresh resource group.' }
 }
 $operator = Invoke-AzJson @('ad', 'signed-in-user', 'show')
-$local = Join-Path $root '.local'
 [void](New-Item $local -ItemType Directory -Force)
-$receiptPath = Join-Path $local 'deployment.json'
-if (Test-Path $receiptPath) {
-    $previous = Get-Content -Raw $receiptPath | ConvertFrom-Json
-    if ($previous.tenantId -ne $TenantId -or $previous.subscriptionId -ne $SubscriptionId -or $previous.resourceGroup -ne $ResourceGroup -or $previous.namePrefix -ne $NamePrefix) { throw 'This checkout has a receipt for another deployment. Use a separate checkout.' }
-}
 $api = Ensure-App "$ResourceGroup-api"
 $spa = Ensure-App "$ResourceGroup-spa"
 $scopeId = 'c97d44b5-9265-4e31-bd99-6328d26212bd'
@@ -111,6 +128,7 @@ $receipt = [ordered]@{
     apiObjectId = $api.id; apiClientId = $api.appId; spaObjectId = $spa.id; spaClientId = $spa.appId
     apiServicePrincipalId = $apiSP.id; reviewerRoleId = $reviewerRole; importerRoleId = $importerRole
     resourceAppScope = "api://$($api.appId)/Review.Access"; createdAt = [DateTime]::UtcNow.ToString('o')
+    privateNetworking = $networking.privateNetworking; publicFrontend = $networking.publicFrontend
 }
 $receipt | ConvertTo-Json -Depth 10 | Set-Content $receiptPath -Encoding utf8
 Assert-Tenant
@@ -124,14 +142,16 @@ $deployment = Invoke-AzJson @(
     "namePrefix=$NamePrefix", "location=$Location", "tenantId=$TenantId", "apiClientId=$($api.appId)",
     "spaClientId=$($spa.appId)", "owner=$($operator.id)", "costCenter=$CostCenter",
     "environment=$Environment", "dataClassification=$DataClassification",
-    "publicFrontend=$($PublicFrontend.IsPresent.ToString().ToLowerInvariant())",
+    "privateNetworking=$($networking.privateNetworking.ToString().ToLowerInvariant())",
+    "publicFrontend=$($networking.publicFrontend.ToString().ToLowerInvariant())",
     "keepDemoRunning=$($KeepDemoRunning.IsPresent.ToString().ToLowerInvariant())"
 )
 $outputs = $deployment.properties.outputs
 $receipt.appName = $outputs.appName.value
 $receipt.appUrl = $outputs.appUrl.value
 $receipt.storageName = $outputs.storageName.value
-$receipt.publicFrontend = [bool]$PublicFrontend
+$receipt.privateNetworking = $outputs.privateNetworking.value
+$receipt.publicFrontend = $outputs.publicFrontend.value
 $receipt | ConvertTo-Json -Depth 10 | Set-Content $receiptPath -Encoding utf8
 [void](Graph 'PATCH' "applications/$($spa.id)" @{ spa = @{ redirectUris = @("$($receipt.appUrl)/auth.html", 'http://localhost:8080/auth.html') } })
 Push-Location $root
