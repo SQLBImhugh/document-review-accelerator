@@ -79,13 +79,23 @@ h3 { font-size:16px; }
 .viewer-toolbar { display:flex; align-items:center; gap:7px; padding:9px 15px; background:var(--panel); border-block:1px solid var(--line); }
 .viewer-toolbar label { margin:0 0 0 4px; font-size:10px; }
 .viewer-toolbar button,.viewer-toolbar select { padding:5px 7px; font-size:11px; }
+.cu-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:9px; padding:9px 15px; background:var(--note-bg); border-bottom:1px solid var(--line); }
+.cu-toolbar label { margin:0; font-size:11px; }
+.cu-toolbar select { padding:4px 7px; font-size:11px; }
+.cu-toolbar .box-toggle { display:flex; align-items:center; gap:6px; color:var(--ink); cursor:pointer; }
+.box-toggle input { width:auto; margin:0; accent-color:var(--accent); }
+.cu-toolbar .micro { flex-basis:100%; }
 .pdf-scroll { position:relative; flex:1; min-height:460px; max-height:850px; overflow:auto; padding:24px; background:var(--code-bg); }
 #pdf-sheet { position:relative; margin:0 auto; background:var(--paper); }
 #pdf-canvas { display:block; width:100%; height:100%; }
-#evidence-overlay { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+#evidence-overlay,#discovery-overlay { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
 #pdf-sheet[data-review-state="needs-input"],.source-legend[data-review-state="needs-input"] { --active-highlight:var(--highlight-action); --active-highlight-line:var(--highlight-action-line); }
 #pdf-sheet[data-review-state="resolved"],.source-legend[data-review-state="resolved"] { --active-highlight:var(--highlight-resolved); --active-highlight-line:var(--highlight-resolved-line); }
 #evidence-overlay polygon { fill:var(--active-highlight,var(--highlight)); stroke:var(--active-highlight-line,var(--highlight-line)); stroke-width:.003; }
+#discovery-overlay polygon { pointer-events:all; cursor:pointer; fill:var(--highlight); stroke:var(--highlight-line); stroke-width:.0015; stroke-dasharray:.006 .003; }
+#discovery-overlay polygon[aria-checked="true"] { fill:var(--active-highlight,var(--highlight)); stroke:var(--active-highlight-line,var(--highlight-line)); stroke-width:.003; stroke-dasharray:none; }
+#discovery-overlay polygon:focus-visible { outline:none; stroke-width:.005; stroke-dasharray:none; }
+#discovery-overlay polygon[aria-disabled="true"] { cursor:default; }
 .source-empty { text-align:center; max-width:290px; margin:120px auto; color:var(--muted); font-size:13px; }
 .source-empty h3 { margin:12px 0 9px; color:var(--ink); }
 .crosshair { font:300 54px "Cascadia Mono",Consolas,monospace; color:var(--accent); }
@@ -137,6 +147,11 @@ legend span { display:block; font-size:9px !important; }
 .evidence-target,.evidence-other { display:block; font-size:10px; font-weight:600; }
 .evidence-target { color:var(--accent); }
 .evidence-other { color:var(--muted); }
+.cu-sources { border-top:1px solid var(--line); padding-top:9px; margin-top:9px; font-size:11px; }
+.cu-sources summary { color:var(--accent); cursor:pointer; font-weight:600; }
+.cu-sources p { margin:8px 0; }
+#cu-source-list { max-height:200px; overflow:auto; }
+#evidence-selection { border-top:1px solid var(--line); padding-top:7px; margin-top:8px; }
 .decision-actions { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 18px; }
 .decision-actions button { padding:7px 9px; font-size:11px; }
 .audit-panel { border-top:1px solid var(--line); padding-top:12px; color:var(--muted); font-size:11px; }

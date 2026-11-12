@@ -42,9 +42,14 @@
         <button id="next-page" disabled aria-label="Next PDF page">Next</button>
         <label for="zoom">Zoom</label><select id="zoom"><option value="75">75%</option><option value="100" selected>100%</option><option value="125">125%</option><option value="150">150%</option><option value="200">200%</option></select>
       </div>
+      <div id="cu-toolbar" class="cu-toolbar" hidden>
+        <label class="box-toggle"><input id="show-cu-boxes" type="checkbox">Show CU boxes</label>
+        <label for="cu-kind">Regions</label><select id="cu-kind"><option value="line">Lines</option><option value="word">Words</option></select>
+        <span id="cu-layout-caption" class="micro"></span>
+      </div>
       <div id="pdf-scroll" class="pdf-scroll">
         <div id="pdf-empty" class="source-empty"><span class="crosshair" aria-hidden="true">+</span><h3>Source-linked review</h3><p>Select a field to locate its evidence on the original PDF.</p></div>
-        <div id="pdf-sheet" hidden><canvas id="pdf-canvas" aria-label="Original source PDF page"></canvas><svg id="evidence-overlay" viewBox="0 0 1 1" preserveAspectRatio="none" aria-label="Selected source highlights"></svg></div>
+        <div id="pdf-sheet" hidden><canvas id="pdf-canvas" aria-label="Original source PDF page"></canvas><svg id="evidence-overlay" viewBox="0 0 1 1" preserveAspectRatio="none" aria-label="Selected source highlights"></svg><svg id="discovery-overlay" viewBox="0 0 1 1" preserveAspectRatio="none" role="group" aria-label="Discovered CU source boxes"></svg></div>
       </div>
       <div id="source-legend" class="source-legend"><span class="legend-line"></span><span id="source-caption">Highlights use the imported page and source polygon, not a generated image.</span></div>
     </section>
@@ -64,7 +69,14 @@
         <label for="reviewed-value"><span id="value-label">Value to review</span> <span id="field-unit"></span></label>
         <input id="reviewed-value" autocomplete="off">
         <p id="original-value" class="micro"></p>
-        <fieldset><legend>Supporting source <span class="micro">Choose the correct row or region</span></legend><div id="evidence-list"></div></fieldset>
+        <fieldset><legend>Supporting source <span class="micro">Choose the correct row or region</span></legend>
+          <div id="evidence-list"></div>
+          <details id="cu-sources" class="cu-sources" hidden><summary>Browse CU regions <span id="cu-region-count"></span></summary>
+            <p class="micro">Choose a box on the PDF or a region below. No automatic field matching or variant labels are added.</p>
+            <div id="cu-source-list"></div>
+          </details>
+          <p id="evidence-selection" class="micro" aria-live="polite"></p>
+        </fieldset>
         <label for="reason">Review note <span class="micro">Optional for Accept original</span></label>
         <p id="reason-help" class="micro">Required for Save correction or Needs information.</p>
         <textarea id="reason" rows="2" maxlength="1000" aria-describedby="reason-help" placeholder="For a correction, explain what changed. For Needs information, state what prevents verification."></textarea>

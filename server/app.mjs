@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { applyCommand, commandDigest, createCase, exportReviewed, fail, hash, reasons, summary, validId } from './domain.mjs';
 import { identityConfigured, requireRole } from './auth.mjs';
+import { discoverCuLayout } from './cu-layout.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const { version } = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -67,11 +68,14 @@ export function createApp({ store, authenticate, config }) {
   });
   app.post('/api/cases', async (request, response) => {
     requireRole(request.actor, 'Importer');
-    const input = request.body;
+    const { cuLayout, ...input } = request.body ?? {};
     const record = createCase(input, request.actor);
     if (input.document) {
-      const { document } = await store.getDocument(input.document.id);
+      const { document, bytes } = await store.getDocument(input.document.id);
       if (!isDeepStrictEqual(input.document, document)) fail(409, 'document_mismatch', 'Use the descriptor returned by the document upload endpoint.');
+      if (cuLayout !== undefined) record.cuLayout = await discoverCuLayout(cuLayout, input, bytes);
+    } else if (cuLayout !== undefined) {
+      fail(400, 'layout_source_required', 'CU box discovery requires the matching source PDF.');
     }
     const etag = await store.create(record);
     response.status(201).set('ETag', etag).json(view(record, etag));

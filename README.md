@@ -16,7 +16,9 @@ model-training service.
 1. An existing pipeline uploads a source PDF and an immutable extraction proposal.
 2. The queue flags low or unknown model scores, critical fields, missing evidence,
    missing values, and wrong part variants.
-3. A reviewer selects a field and sees its page and source polygon on the PDF.
+3. A reviewer selects a field and sees its linked source polygon on the PDF.
+   Optional CU layout import also exposes available word/line boxes for manual
+   selection; it does not connect them to fields automatically.
 4. The reviewer accepts the original, saves a sourced correction, or records
    missing information with a reason.
 5. Explicit case sign-off releases a reviewed JSON result. The original proposal
@@ -72,6 +74,11 @@ bearer token. The public health and configuration endpoints remain available.
 The B1 plan incurs the [cost described below](#cost-and-network-behavior).
 Use the CLI path for private-networked deployments. Do not point the portal
 template at an existing private deployment; retain its original CLI options.
+
+If tenant policy disables public Blob access, sign-in can work while document
+and review requests fail. Use the CLI path with `-PrivateNetworking -PublicFrontend`
+in a fresh resource group and checkout instead. Do not disable security governance
+to keep the portal profile public.
 
 ### Finish identity setup
 
@@ -211,9 +218,39 @@ The switch does not exempt private storage or disable security governance.
 ## Integrate an existing pipeline
 
 Use the [API and input contract](docs/contract.md).
-The existing pipeline chooses the source regions and any business-critical
-fields. This service does not invent confidence or discover missing PDF boxes.
+The existing pipeline supplies the fields and any business-critical or variant
+labels. It can supply prelinked source regions, or include its saved Content
+Understanding JSON as `cuLayout` when importing a case. The accelerator reads
+existing CU word/line geometry; it does not run OCR, generate boxes with a
+model, or infer which region supports a field.
 `scripts\seed.mjs` is a runnable integration example.
+
+### Discover existing CU boxes
+
+1. Upload the original PDF through `POST /api/documents`.
+2. Import the case with its original fields plus the optional
+   [CU layout envelope](docs/contract.md#optional-cu-layout-import).
+   Bind the layout to the returned PDF hash and declare its coordinate space.
+3. Select a field, enable **Show CU boxes**, and choose **Lines** or **Words**.
+   Click a source box or select a region under **Browse CU regions**.
+4. Inspect the PDF and save **Accept original** or **Save correction** to retain
+   that evidence selection. Merely showing or selecting a box does not save a
+   decision. Existing wrong-variant restrictions still apply.
+
+Discovered boxes remain separate from the original field links. The service
+retains normalized regions and CU analysis provenance with the case; the source
+pipeline keeps the original CU JSON. No new Azure resource, agent change, model
+call, or automatic training is required.
+
+The bounded importer supports one CU document result covering the complete,
+uncropped PDF, with at most 1,000 combined imported/discovered regions. It rejects
+unsupported or mismatched layouts rather than guessing or silently truncating.
+The input contract explains rotation, units, and source-pairing limits.
+
+On a fresh seed, `synthetic-09` demonstrates discovery with a CU-shaped fixture
+generated from the synthetic PDF's text positions, not a live CU analysis.
+Existing seeded cases are not overwritten; an older `synthetic-09` does not
+gain boxes until imported under a new case ID or tested in a fresh deployment.
 
 For service-to-service import, assign the existing pipeline's managed identity
 the API's `Importer` application role. Request an access token for the API, not
@@ -271,7 +308,8 @@ examined and the reason for choosing a smaller standalone component.
 
 - PDFs: 10 MB maximum, 1-100 pages, not encrypted. Source files are content-hashed
   and immutable through this API.
-- Proposals: 100 fields, 1,000 evidence regions, and 2 MB JSON maximum.
+- Proposals: 100 fields, 1,000 combined prelinked/discovered evidence regions,
+  and 2 MB JSON maximum, including optional CU input.
 - Queue: up to 500 cases; exceeding it fails explicitly rather than hiding cases.
 - A case retains up to 1,000 commands; the service refuses further changes
   instead of dropping audit history.

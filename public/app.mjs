@@ -9,7 +9,10 @@ const labels = {
   needs_information: 'Needs information', validated: 'Validated'
 };
 let identity, account, config, cases = [], current, fieldId, pdf, pdfBytes, pdfLoadingTask, renderTask;
-let pageNumber = 1, generation = 0, selectedEvidence = new Set(), busy = false;
+let pageNumber = 1, generation = 0, selectedEvidence = new Set(), busy = false, caseLoading = false;
+const sourceEvidence = () => [...current.proposal.evidence, ...(current.cuLayout?.regions ?? [])];
+const pageRegions = () => (current.cuLayout?.regions ?? [])
+  .filter(item => item.page === pageNumber && item.discovery.kind === $('cu-kind').value);
 const display = value => value === null || value === undefined ? '(not provided)' : String(value);
 const signal = value => value === null || value === undefined ? 'Not provided' : `${Math.round(value * 100)}%`;
 function node(tag, text, className) {
@@ -80,53 +83,67 @@ function paintQueue() {
 }
 async function openCase(id) {
   const thisGeneration = ++generation;
+  caseLoading = true;
+  if (current) { paintFields(); paintSources(); paintHighlights(); paintDecisionControls(); }
   renderTask?.cancel();
-  const record = await (await api(`/cases/${encodeURIComponent(id)}`)).json();
-  if (thisGeneration !== generation) return;
-  const previousTask = pdfLoadingTask;
-  pdfLoadingTask = null;
-  pdf = null;
-  pdfBytes = null;
-  await renderPdf();
-  await previousTask?.destroy();
-  if (thisGeneration !== generation) return;
-  current = record;
-  pageNumber = 1;
-  paintCase();
-  paintQueue();
-  fieldId = current.proposal.fields.find(field => reviewState(field).needsInput)?.id ?? current.proposal.fields[0].id;
-  chooseField(fieldId, false);
-  $('page').replaceChildren(node('option', '--'));
-  $('page-total').textContent = 'of --';
-  $('source-caption').textContent = current.proposal.document ? 'Loading the authenticated source PDF.' : 'No source PDF or source regions are attached to this case.';
-  $('pdf-sheet').hidden = true;
-  $('pdf-empty').hidden = false;
-  $('pdf-empty').replaceChildren(node('h3', current.proposal.document ? 'Loading the source PDF...' : 'Source PDF missing'),
-    node('p', current.proposal.document ? 'Retrieving the authenticated, integrity-checked source.' : 'Record what is missing. Acceptance and sign-off are blocked until a new case includes the source.'));
-  if (!current.proposal.document) return;
   try {
-    const response = await api(`/cases/${encodeURIComponent(id)}/document`);
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const record = await (await api(`/cases/${encodeURIComponent(id)}`)).json();
     if (thisGeneration !== generation) return;
-    const loadingTask = pdfjs.getDocument({ data: bytes.slice(), cMapUrl: '/vendor/pdfjs/cmaps/', cMapPacked: true, standardFontDataUrl: '/vendor/pdfjs/standard_fonts/', isEvalSupported: false });
-    pdfLoadingTask = loadingTask;
-    const loaded = await loadingTask.promise;
-    if (thisGeneration !== generation) { await loadingTask.destroy(); return; }
-    pdf = loaded;
-    pdfBytes = bytes;
-    $('page').replaceChildren(...Array.from({ length: pdf.numPages }, (_, index) => {
-      const option = node('option', String(index + 1)); option.value = String(index + 1); return option;
-    }));
-    $('page-total').textContent = `of ${pdf.numPages}`;
-    $('download-pdf').disabled = false;
-    const first = current.proposal.evidence.find(item => selectedEvidence.has(item.id));
-    pageNumber = first?.page ?? 1;
+    const previousTask = pdfLoadingTask;
+    pdfLoadingTask = null;
+    pdf = null;
+    pdfBytes = null;
     await renderPdf();
-    paintDecisionControls();
-  } catch (error) {
+    await previousTask?.destroy();
     if (thisGeneration !== generation) return;
-    $('pdf-empty').replaceChildren(node('h3', 'The source could not be opened'), node('p', error.message));
-    report(error);
+    current = record;
+    pageNumber = 1;
+    $('show-cu-boxes').checked = false;
+    $('cu-kind').value = current.cuLayout?.lineCount ? 'line' : 'word';
+    $('cu-sources').open = false;
+    paintCase();
+    paintQueue();
+    fieldId = current.proposal.fields.find(field => reviewState(field).needsInput)?.id ?? current.proposal.fields[0].id;
+    chooseField(fieldId, false);
+    $('page').replaceChildren(node('option', '--'));
+    $('page-total').textContent = 'of --';
+    $('source-caption').textContent = current.proposal.document ? 'Loading the authenticated source PDF.' : 'No source PDF or source regions are attached to this case.';
+    $('pdf-sheet').hidden = true;
+    $('pdf-empty').hidden = false;
+    $('pdf-empty').replaceChildren(node('h3', current.proposal.document ? 'Loading the source PDF...' : 'Source PDF missing'),
+      node('p', current.proposal.document ? 'Retrieving the authenticated, integrity-checked source.' : 'Record what is missing. Acceptance and sign-off are blocked until a new case includes the source.'));
+    if (!current.proposal.document) return;
+    try {
+      const response = await api(`/cases/${encodeURIComponent(id)}/document`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (thisGeneration !== generation) return;
+      const loadingTask = pdfjs.getDocument({ data: bytes.slice(), cMapUrl: '/vendor/pdfjs/cmaps/', cMapPacked: true, standardFontDataUrl: '/vendor/pdfjs/standard_fonts/', isEvalSupported: false });
+      pdfLoadingTask = loadingTask;
+      const loaded = await loadingTask.promise;
+      if (thisGeneration !== generation) { await loadingTask.destroy(); return; }
+      pdf = loaded;
+      pdfBytes = bytes;
+      $('page').replaceChildren(...Array.from({ length: pdf.numPages }, (_, index) => {
+        const option = node('option', String(index + 1)); option.value = String(index + 1); return option;
+      }));
+      $('page-total').textContent = `of ${pdf.numPages}`;
+      $('download-pdf').disabled = false;
+      const first = sourceEvidence().find(item => selectedEvidence.has(item.id));
+      pageNumber = first?.page ?? 1;
+      await renderPdf();
+    } catch (error) {
+      if (thisGeneration !== generation) return;
+      $('pdf-empty').replaceChildren(node('h3', 'The source could not be opened'), node('p', error.message));
+      report(error);
+    }
+  } finally {
+    if (thisGeneration === generation && current) {
+      caseLoading = false;
+      paintFields();
+      paintSources();
+      paintHighlights();
+      paintDecisionControls();
+    }
   }
 }
 const decisionFor = id => Object.hasOwn(current.decisions, id) ? current.decisions[id] : undefined;
@@ -203,6 +220,7 @@ function paintFields() {
   $('fields').replaceChildren(...current.proposal.fields.map(field => {
     const state = reviewState(field);
     const button = node('button', undefined, `field-item ${state.tone}`);
+    button.disabled = caseLoading || busy;
     button.setAttribute('aria-pressed', String(field.id === fieldId));
     button.append(node('span', field.label), node('span', `${display(state.resolved ? state.decision.value : field.value)} ${field.unit ?? ''}`, 'field-value'));
     if (state.label) button.append(node('span', state.label, `field-state ${state.tone}`));
@@ -240,41 +258,79 @@ function chooseField(id, render = true) {
   $('original-value').textContent = `Original proposal: ${display(field.value)} ${field.unit ?? ''}${field.valueType === 'boolean' ? ' / enter true or false' : ''}`;
   $('reason').value = decision?.reason ?? '';
   $('reason').disabled = Boolean(current.approved) || busy;
-  $('evidence-list').replaceChildren(...current.proposal.evidence.map(item => {
+  const first = sourceEvidence().find(item => selectedEvidence.has(item.id));
+  if (first) pageNumber = first.page;
+  paintSources();
+  paintDecisionControls();
+  paintFields();
+  if (render) renderPdf().catch(report);
+}
+function selectEvidence(item, checked) {
+  if (busy || caseLoading || current.approved || !pdf) return;
+  if (checked) selectedEvidence.add(item.id); else selectedEvidence.delete(item.id);
+  const changedPage = pageNumber !== item.page;
+  pageNumber = item.page;
+  if (item.discovery) {
+    $('show-cu-boxes').checked = true;
+    $('cu-sources').open = true;
+  }
+  paintSources();
+  if (changedPage) renderPdf().catch(report); else paintHighlights();
+}
+function paintSources() {
+  if (!current) return;
+  const focused = document.activeElement?.id;
+  const field = current.proposal.fields.find(item => item.id === fieldId);
+  const locked = Boolean(current.approved) || busy || caseLoading || !pdf;
+  const option = item => {
     const label = node('label', undefined, 'evidence-option');
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
+    checkbox.id = `evidence-${item.id}`;
     checkbox.value = item.id;
     checkbox.checked = selectedEvidence.has(item.id);
-    checkbox.disabled = Boolean(current.approved) || busy;
-    checkbox.addEventListener('change', () => {
-      if (checkbox.checked) selectedEvidence.add(item.id); else selectedEvidence.delete(item.id);
-      pageNumber = item.page;
-      renderPdf().catch(report);
-    });
+    checkbox.disabled = locked;
+    checkbox.addEventListener('change', () => selectEvidence(item, checkbox.checked));
     const details = node('span', item.quote);
     if (field.variantScoped && current.proposal.requiredVariant && item.variant) {
       details.append(node('strong', item.variant === current.proposal.requiredVariant
         ? `Matches requested suffix ${item.variant}` : `Different suffix ${item.variant}`,
       item.variant === current.proposal.requiredVariant ? 'evidence-target' : 'evidence-other'));
     }
-    details.append(node('small', `Page ${item.page}${item.variant ? ` / suffix ${item.variant}` : ''} / OCR confidence ${signal(item.ocrConfidence)}`));
+    details.append(node('small', `${item.discovery ? `CU ${item.discovery.kind} / ` : ''}Page ${item.page}${item.variant ? ` / suffix ${item.variant}` : ''} / OCR confidence ${signal(item.ocrConfidence)}`));
     label.append(checkbox, details);
     return label;
-  }));
-  if (!current.proposal.evidence.length) $('evidence-list').append(node('p', 'No source regions were supplied.', 'micro'));
-  paintDecisionControls();
-  paintFields();
-  const first = current.proposal.evidence.find(item => selectedEvidence.has(item.id));
-  if (first) pageNumber = first.page;
-  if (render) renderPdf().catch(report);
+  };
+  const discovered = current.cuLayout?.regions ?? [];
+  $('evidence-list').replaceChildren(...current.proposal.evidence.map(option),
+    ...discovered.filter(item => selectedEvidence.has(item.id)).map(option));
+  if (!current.proposal.evidence.length && !selectedEvidence.size) {
+    $('evidence-list').append(node('p', discovered.length ? 'No source is linked yet. Choose a CU box manually.' : 'No source regions were supplied.', 'micro'));
+  }
+  $('cu-toolbar').hidden = !discovered.length;
+  $('show-cu-boxes').disabled = !pdf || caseLoading;
+  $('cu-kind').disabled = !pdf || caseLoading;
+  for (const kind of ['word', 'line']) $('cu-kind').querySelector(`option[value="${kind}"]`).disabled = !discovered.some(item => item.discovery.kind === kind);
+  const candidates = pageRegions();
+  $('cu-layout-caption').textContent = `${discovered.length} imported boxes / select supporting evidence manually`;
+  $('cu-sources').hidden = !discovered.length;
+  $('cu-region-count').textContent = `(${candidates.length} ${$('cu-kind').value} boxes on page ${pageNumber})`;
+  $('cu-source-list').replaceChildren(...candidates.filter(item => !selectedEvidence.has(item.id)).map(option));
+  if (!candidates.length) $('cu-source-list').append(node('p', 'No CU boxes of this kind on this page.', 'micro'));
+  const saved = decisionFor(fieldId)?.evidenceIds ?? field.evidenceIds;
+  const pending = selectedEvidence.size !== saved.length || saved.some(id => !selectedEvidence.has(id));
+  $('evidence-selection').textContent = `${selectedEvidence.size} source${selectedEvidence.size === 1 ? '' : 's'} selected.${pending ? ' Save an acceptance or correction to retain this selection.' : ''}`;
+  if (focused?.startsWith('evidence-')) $(focused)?.focus({ preventScroll: true });
 }
 function paintDecisionControls() {
-  $('accept').disabled = busy || Boolean(current.approved) || !pdf || current.fieldReasons[fieldId].includes('variant_mismatch');
-  $('correct').disabled = busy || Boolean(current.approved) || !pdf;
-  $('unresolved').disabled = busy || Boolean(current.approved);
+  const locked = busy || caseLoading || Boolean(current.approved);
+  $('reviewed-value').disabled = locked;
+  $('reason').disabled = locked;
+  $('accept').disabled = locked || !pdf || current.fieldReasons[fieldId].includes('variant_mismatch');
+  $('correct').disabled = locked || !pdf;
+  $('unresolved').disabled = locked;
   $('unresolved').className = reviewState(current.proposal.fields.find(field => field.id === fieldId)).needsInput ? 'attention' : '';
-  $('signoff').disabled = busy || Boolean(current.approved) || current.summary.open > 0 || !pdf;
+  $('signoff').disabled = locked || current.summary.open > 0 || !pdf;
 }
 async function renderPdf() {
   if (!pdf) {
@@ -282,6 +338,8 @@ async function renderPdf() {
     $('previous-page').disabled = true;
     $('next-page').disabled = true;
     $('download-pdf').disabled = true;
+    $('discovery-overlay').replaceChildren();
+    $('evidence-overlay').replaceChildren();
     return;
   }
   renderTask?.cancel();
@@ -309,16 +367,44 @@ async function renderPdf() {
   $('page').value = String(pageNumber);
   $('previous-page').disabled = pageNumber <= 1;
   $('next-page').disabled = pageNumber >= pdf.numPages;
-  const visible = current.proposal.evidence.filter(item => item.page === pageNumber && selectedEvidence.has(item.id));
-  $('evidence-overlay').replaceChildren(...visible.map(item => {
+  paintSources();
+  paintHighlights();
+}
+function paintHighlights() {
+  if (!pdf || !current) return;
+  const visible = sourceEvidence().filter(item => item.page === pageNumber && selectedEvidence.has(item.id));
+  const candidates = $('show-cu-boxes').checked ? pageRegions() : [];
+  const candidateIds = new Set(candidates.map(item => item.id));
+  const polygonFor = item => {
     const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
     polygon.setAttribute('points', item.polygon.map(point => point.join(',')).join(' '));
     const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
     title.textContent = item.quote;
     polygon.append(title);
     return polygon;
+  };
+  $('evidence-overlay').replaceChildren(...visible.filter(item => !candidateIds.has(item.id)).map(polygonFor));
+  const focused = document.activeElement?.dataset.evidenceId;
+  $('discovery-overlay').replaceChildren(...candidates.map(item => {
+    const polygon = polygonFor(item);
+    const locked = Boolean(current.approved) || busy || caseLoading;
+    polygon.dataset.evidenceId = item.id;
+    polygon.setAttribute('role', 'checkbox');
+    polygon.setAttribute('tabindex', locked ? '-1' : '0');
+    polygon.setAttribute('aria-label', `Use CU ${item.discovery.kind}: ${item.quote}`);
+    polygon.setAttribute('aria-checked', String(selectedEvidence.has(item.id)));
+    polygon.setAttribute('aria-disabled', String(locked));
+    const toggle = () => selectEvidence(item, !selectedEvidence.has(item.id));
+    polygon.addEventListener('click', toggle);
+    polygon.addEventListener('keydown', event => {
+      if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); toggle(); }
+    });
+    return polygon;
   }));
-  $('source-caption').textContent = visible.length ? visible.map(item => item.quote).join(' / ') : 'No selected evidence on this page. Select a supporting source to locate it.';
+  if (focused) $('discovery-overlay').querySelector(`[data-evidence-id="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+  $('source-caption').textContent = visible.length ? visible.map(item => item.quote).join(' / ')
+    : candidates.length ? `Choose a CU box as supporting evidence for ${current.proposal.fields.find(item => item.id === fieldId).label}. Nothing is linked automatically.`
+    : 'No selected evidence on this page. Select a supporting source to locate it.';
 }
 async function submit(action) {
   if (!current || busy) return;
@@ -332,6 +418,10 @@ async function submit(action) {
   };
   busy = true;
   ['accept', 'correct', 'unresolved', 'signoff'].forEach(id => { $(id).disabled = true; });
+  paintFields();
+  paintDecisionControls();
+  paintSources();
+  paintHighlights();
   const key = crypto.randomUUID();
   const options = { method: 'POST', headers: { 'content-type': 'application/json', 'if-match': current.etag, 'idempotency-key': key }, body: JSON.stringify(command) };
   try {
@@ -352,7 +442,7 @@ async function submit(action) {
     if (error.status === 412) {
       await openCase(current.proposal.id);
       message('Another reviewer changed this case. The current version was reloaded; your attempted decision was not applied.', 'error');
-    } else { paintCase(); paintDecisionControls(); report(error); }
+    } else { paintCase(); paintSources(); paintHighlights(); paintDecisionControls(); report(error); }
   }
 }
 function download(bytes, filename, type) {
@@ -377,6 +467,11 @@ $('search').addEventListener('input', paintQueue);
 $('status-filter').addEventListener('change', paintQueue);
 $('page').addEventListener('change', () => { pageNumber = Number($('page').value); renderPdf().catch(report); });
 $('zoom').addEventListener('change', () => renderPdf().catch(report));
+$('show-cu-boxes').addEventListener('change', () => {
+  if ($('show-cu-boxes').checked) $('cu-sources').open = true;
+  paintHighlights();
+});
+$('cu-kind').addEventListener('change', () => { paintSources(); paintHighlights(); });
 $('previous-page').addEventListener('click', () => { pageNumber--; renderPdf().catch(report); });
 $('next-page').addEventListener('click', () => { pageNumber++; renderPdf().catch(report); });
 $('download-pdf').addEventListener('click', () => { if (pdfBytes) download(pdfBytes, current.proposal.document.filename, 'application/pdf'); });

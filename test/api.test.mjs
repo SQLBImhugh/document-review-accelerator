@@ -177,6 +177,67 @@ test('API accepts the original with no reason, audits it once, and still rejects
   assert.equal(loaded.audit.length, 2);
 });
 
+test('CU bounding boxes stay unlinked until a reviewer saves evidence, then survive export and reload', async () => {
+  const document = await (await request('/api/documents', {
+    method: 'POST', headers: { 'content-type': 'application/pdf' }, body: fixture.bytes
+  })).json();
+  const proposal = structuredClone(fixture.proposals[0]);
+  proposal.id = 'cu-manual-review';
+  proposal.document = document;
+  proposal.fields = [{ ...proposal.fields[4], evidenceIds: [] }];
+  const region = proposal.evidence.find(item => item.id === 'type');
+  const analysis = {
+    status: 'Succeeded',
+    result: {
+      analyzerId: 'prebuilt-documentSearch', apiVersion: '2025-11-01',
+      contents: [{
+        kind: 'document', unit: 'inch', startPageNumber: 1, endPageNumber: 2,
+        pages: document.pages.map(page => ({
+          pageNumber: page.number, width: page.width / 72, height: page.height / 72,
+          lines: page.number === 1 ? [{
+            content: region.quote,
+            source: `D(1,${region.polygon.flatMap(([x, y]) => [x * page.width / 72, y * page.height / 72]).join(',')})`
+          }] : []
+        }))
+      }]
+    }
+  };
+  const response = await request('/api/cases', json({
+    ...proposal, cuLayout: { documentSha256: document.sha256, analysis }
+  }));
+  assert.equal(response.status, 201, await response.clone().text());
+  let record = await response.json();
+  assert.deepEqual(record.proposal, proposal);
+  assert.equal(record.cuLayout.regions.length, 1);
+  assert.deepEqual(record.proposal.fields[0].evidenceIds, []);
+  assert.ok(record.fieldReasons.type.includes('missing_evidence'));
+  const discovered = record.cuLayout.regions[0];
+  assert.equal(discovered.quote, region.quote);
+  assert.equal(discovered.discovery.kind, 'line');
+  assert.equal(discovered.variant, undefined);
+  const route = `/api/cases/${proposal.id}/commands`;
+  const send = (body, key) => request(route, {
+    ...json({ ...body, runId: proposal.runId, documentSha256: document.sha256 }),
+    headers: { ...json(body).headers, 'if-match': record.etag, 'idempotency-key': key }
+  });
+  let saved = await send({ action: 'accept', fieldId: 'type', evidenceIds: [discovered.id] }, 'select-cu-source');
+  assert.equal(saved.status, 200, await saved.clone().text());
+  record = await saved.json();
+  assert.deepEqual(record.decisions.type.evidenceIds, [discovered.id]);
+  assert.deepEqual(record.proposal, proposal);
+  saved = await send({ action: 'signoff' }, 'release-cu-case');
+  assert.equal(saved.status, 200);
+  record = await saved.json();
+  const loaded = await (await request(`/api/cases/${proposal.id}`)).json();
+  assert.deepEqual(loaded.cuLayout, record.cuLayout);
+  assert.deepEqual(loaded.decisions.type.evidenceIds, [discovered.id]);
+  const exported = await (await request(`/api/cases/${proposal.id}/export`)).json();
+  assert.deepEqual(exported.fields[0].evidence, [discovered]);
+  assert.equal(exported.cuLayout.analysisSha256, record.cuLayout.analysisSha256);
+  assert.equal(exported.cuLayout.regions, undefined);
+  assert.equal((await send({ action: 'accept', fieldId: 'type', evidenceIds: [discovered.id] }, 'signed-case')).status, 409);
+});
+
 test('portal deployment stays locked until identity setup, even with a bearer token', async t => {
   let authenticationCalls = 0;
   const pending = createApp({

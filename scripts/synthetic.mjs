@@ -11,9 +11,21 @@ export async function syntheticFixture() {
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const pages = [pdf.addPage([612, 792]), pdf.addPage([612, 792])];
   const evidence = [];
+  const cuPages = pages.map((page, index) => ({
+    pageNumber: index + 1, width: 8.5, height: 11, words: [], lines: []
+  }));
   function write(pageNumber, text, x, y, size = 12, strong = false) {
     const font = strong ? bold : regular;
     pages[pageNumber - 1].drawText(text, { x, y, size, font, color: rgb(0.12, 0.18, 0.22) });
+    const region = (content, left) => ({
+      content, source: `D(${pageNumber},${(left - 1) / 72},${(792 - y - size - 1) / 72},${(font.widthOfTextAtSize(content, size) + 2) / 72},${(size + 3) / 72})`
+    });
+    cuPages[pageNumber - 1].lines.push(region(text, x));
+    for (const match of text.matchAll(/\S+/g)) {
+      cuPages[pageNumber - 1].words.push({
+        ...region(match[0], x + font.widthOfTextAtSize(text.slice(0, match.index), size)), confidence: 0.99
+      });
+    }
     return { x, y, width: font.widthOfTextAtSize(text, size), height: size };
   }
   function source(id, page, quote, box, variant) {
@@ -90,7 +102,20 @@ export async function syntheticFixture() {
       proposal.evidence = [];
       proposal.fields.forEach(field => { field.evidenceIds = []; });
     }
-    if (index === 8) proposal.fields[1].modelScore = 0.99;
+    if (index === 8) {
+      proposal.fields[1].modelScore = 0.99;
+      proposal.fields[3].evidenceIds = [];
+      proposal.cuLayout = {
+        documentSha256: document.sha256, coordinateSpace: 'display',
+        analysis: {
+          status: 'Succeeded',
+          result: {
+            analyzerId: 'synthetic-layout-fixture', apiVersion: '2025-11-01',
+            contents: [{ kind: 'document', unit: 'inch', startPageNumber: 1, endPageNumber: 2, pages: cuPages }]
+          }
+        }
+      };
+    }
     if (index === 9) proposal.fields[2].nativeConfidence = 0.42;
     return proposal;
   });

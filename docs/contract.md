@@ -19,9 +19,9 @@ review mode. Once configured, the normal Entra token/role rules apply.
 | Method and route | Role | Behavior |
 | --- | --- | --- |
 | `POST /api/documents` | Importer | Upload raw `application/pdf`; optional `X-Document-Name`. Returns the canonical descriptor, including SHA-256 ID, page sizes, and page rotations. |
-| `POST /api/cases` | Importer | Import the immutable proposal below. The descriptor must match the upload response. Reusing an existing case ID returns `409`. |
+| `POST /api/cases` | Importer | Import the immutable proposal, optionally discovering boxes from an accompanying CU result. The descriptor must match the upload response. Reusing an existing case ID returns `409`. |
 | `GET /api/cases` | Reviewer | Complete summary queue, capped at 500 cases. No silent truncation. |
-| `GET /api/cases/:id` | Reviewer | Original proposal, decisions, reason codes, audit, summary, and current ETag. |
+| `GET /api/cases/:id` | Reviewer | Original proposal, optional normalized `cuLayout` candidates, decisions, reason codes, audit, summary, and current ETag. |
 | `GET /api/cases/:id/document` | Reviewer | Actual PDF bytes, checked against the proposal's source hash. |
 | `POST /api/cases/:id/commands` | Reviewer | Apply one versioned, idempotent review command. |
 | `GET /api/cases/:id/export` | Reviewer | Reviewed result; requires explicit sign-off. |
@@ -43,6 +43,7 @@ runnable example. The proposal has:
 | `modelReviewThreshold` | Optional 0-1 routing threshold; defaults to `0.8`. |
 | `fields` | 1-100 proposed fields. |
 | `evidence` | Up to 1,000 source regions, each tied to this PDF. Empty when `document=null`. |
+| `cuLayout` | Optional import-only envelope described below. The raw envelope is removed before the original proposal is stored. |
 
 Each field contains `id`, `label`, `valueType` (`string`, `number`, or `boolean`),
 `value` (that primitive type or `null`), `kind` (`extracted`, `derived`, or
@@ -64,6 +65,123 @@ The upload descriptor includes each page's width/height in PDF points and
 rotation. The content hash, not the filename, identifies a document. Uploading
 identical bytes again returns the first canonical descriptor. Changing the
 filename does not change document identity.
+
+## Optional CU layout import
+
+Include `cuLayout` alongside the ordinary proposal properties in
+`POST /api/cases`. Leave the original `fields[].evidenceIds` unchanged, or empty
+when no links exist. Discovery never fills those links, changes values,
+assigns variants, or replaces confidence signals.
+
+The following is an example of the `cuLayout` member for a one-page PDF:
+
+```json
+{
+  "documentSha256": "<the exact SHA-256 from the PDF upload>",
+  "coordinateSpace": "display",
+  "analysis": {
+    "status": "Succeeded",
+    "result": {
+      "analyzerId": "prebuilt-documentSearch",
+      "apiVersion": "2025-11-01",
+      "contents": [{
+        "kind": "document",
+        "unit": "inch",
+        "startPageNumber": 1,
+        "endPageNumber": 1,
+        "pages": [{
+          "pageNumber": 1,
+          "width": 8.5,
+          "height": 11,
+          "lines": [{
+            "content": "Finish: zinc plated",
+            "source": "D(1,1,2,2,0.2)"
+          }],
+          "words": [{
+            "content": "zinc",
+            "confidence": 0.99,
+            "source": "D(1,1.8,2,0.3,0.2)"
+          }]
+        }]
+      }]
+    }
+  }
+}
+```
+
+`analysis` accepts the successful CU analyze response or its inner `result`
+object. The service reads only `pages[].words` and `pages[].lines`, using each
+element's nonempty `content` and `source`. It does not slice Markdown spans,
+search for values, infer table relationships, or run another analysis.
+Source coordinates can use either documented `D(...)` form. A word/line's
+optional `confidence` is retained only as OCR/source confidence.
+
+### Coordinate and source requirements
+
+- `documentSha256` must equal the uploaded descriptor's hash. The stored PDF
+  bytes are checked again before discovery.
+- `coordinateSpace=display`, the default, means the CU coordinates describe
+  the page as displayed after the PDF's rotation. Normalization uses those
+  page dimensions without applying rotation again.
+- Use `coordinateSpace=unrotated` only when the CU coordinates describe the
+  PDF before its rotation. The importer transforms those points by the actual
+  PDF quarter-turn rotation. It does not infer the coordinate space or apply
+  the CU page's text `angle` as a second rotation.
+- Provide one document content object with every original page, numbered
+  consecutively from one. Segmented, partial-page, and multi-content results
+  are unsupported. Word/line boxes must lie within their declared page.
+- `unit=inch` dimensions must agree with the PDF's physical size within the
+  greater of one PDF point or 0.5%. `unit=pixel` requires a matching page aspect
+  ratio within 0.5%, for a rendering of the same complete PDF page.
+- Cropped PDF pages and rotations other than 0, 90, 180, or 270 degrees are
+  rejected. New OCR, image registration, and crop reconciliation are outside
+  this feature.
+
+The source hash binds the import to a stored PDF; it does not prove that the
+submitted CU JSON was generated from that PDF. CU results do not carry that
+proof. The importer must pair the original PDF and analysis correctly, and the
+reviewer checks the rendered source.
+
+Malformed, empty, out-of-bounds, or incompatible layouts fail the entire case
+import. Existing evidence plus discovered boxes must total at most 1,000, and
+the complete request, including the CU JSON, remains limited to 2 MB. No boxes
+are silently dropped.
+
+### Discovery output and manual selection
+
+`GET /api/cases/:id` returns a normalized top-level `cuLayout` separate from
+`proposal`. It contains:
+
+| Property | Meaning |
+| --- | --- |
+| `documentSha256` | Exact imported PDF identity. |
+| `analysisSha256` | SHA-256 of `JSON.stringify(analysis)` from the import, not a hash of the raw JSON file's whitespace. |
+| `analyzerId`, `apiVersion` | Optional upstream metadata; null when absent. |
+| `coordinateSpace` | The declared input coordinate space. |
+| `wordCount`, `lineCount` | Imported region counts. |
+| `regions` | Normalized candidates with `id`, `page`, `quote`, `polygon`, optional `ocrConfidence`, and `discovery`. |
+
+`discovery` records `kind` (`word` or `line`), the `elementPath` relative to the
+CU result, and the original `source` string. IDs such as `cu-line-1-0` identify
+the element kind, page, and index. A collision with supplied evidence IDs fails
+the import. The raw CU response is not retained; keep it in the source pipeline
+if needed for reproduction or audit.
+
+In the UI, select a field and enable **Show CU boxes**. Choose **Lines** or
+**Words**, then select a box on the PDF or a checkbox in **Browse CU regions**.
+Keyboard users can focus a box and press Space or Enter. Selections are drafts
+until an acceptance or correction is saved.
+
+Review commands can name either original evidence IDs or discovered region
+IDs. They still require the case ETag, idempotency key, source hash, run ID, and
+normal review permissions. Saved decisions and audit history retain the
+explicit human selection; the original proposal and its field links do not
+change. Signed-off cases remain read-only.
+
+Discovery does not assign `variant` labels or clear original missing-evidence
+and wrong-variant routing reasons. For a variant-scoped field, the existing
+requirement for importer-supplied evidence labeled with `requiredVariant`
+remains. Selecting an unlabeled CU box alone cannot satisfy that gate.
 
 ## Review commands
 
@@ -122,7 +240,10 @@ another decision.
 Reviewed export includes requested part, required suffix, source descriptor,
 source revision, run identity, approval time, and fields with original/reviewed
 values, decision, reason, selected source regions, and separate confidence
-signals. The full audit is available on the case endpoint.
+signals. For a CU-enabled case it also includes `cuLayout` provenance without
+the complete candidate list. Selected CU regions retain their `discovery`
+metadata inside the field's evidence. The full candidate list and audit remain
+available on the case endpoint.
 
 The source pipeline can poll validated cases and consume their reviewed export.
 No automatic callback, extraction rerun, model update, or downstream business

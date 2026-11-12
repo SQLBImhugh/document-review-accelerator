@@ -1,12 +1,17 @@
 import { createApp } from '../server/app.mjs';
 import { MemoryStore } from '../server/store.mjs';
 import { createCase, fail } from '../server/domain.mjs';
+import { discoverCuLayout } from '../server/cu-layout.mjs';
 import { syntheticFixture } from '../scripts/synthetic.mjs';
 
 const { bytes, document, proposals } = await syntheticFixture();
 const store = new MemoryStore();
 await store.putDocument(document, bytes);
-for (const proposal of proposals) await store.create(createCase(proposal, { id: 'synthetic-importer' }));
+for (const { cuLayout, ...proposal } of proposals) {
+  const record = createCase(proposal, { id: 'synthetic-importer' });
+  if (cuLayout) record.cuLayout = await discoverCuLayout(cuLayout, proposal, bytes);
+  await store.create(record);
+}
 const app = createApp({
   store,
   config: { tenantId: '11111111-1111-4111-8111-111111111111', apiClientId: '22222222-2222-4222-8222-222222222222', spaClientId: '33333333-3333-4333-8333-333333333333' },

@@ -16,6 +16,7 @@ const score = value => value === null || (typeof value === 'number' && Number.is
 const text = (value, limit = 500) => typeof value === 'string' && value.trim().length > 0 && value.length <= limit;
 export const resolved = decision => decision && ['accepted', 'corrected'].includes(decision.kind);
 const decisionFor = (record, id) => Object.hasOwn(record.decisions, id) ? record.decisions[id] : undefined;
+export const evidenceFor = record => [...record.proposal.evidence, ...(record.cuLayout?.regions ?? [])];
 
 export function validateDocument(document) {
   if (!document || !/^[a-f0-9]{64}$/.test(document.id) || document.sha256 !== document.id ||
@@ -150,7 +151,8 @@ export function applyCommand(record, command, actor, idempotencyKey, now = new D
     const reason = note.trim();
     if (command.action !== 'accept' && !reason) fail(400, 'reason_required', 'A review reason is required.');
     const selected = command.evidenceIds ?? [];
-    if (!Array.isArray(selected) || selected.some(id => !next.proposal.evidence.some(item => item.id === id))) {
+    const evidence = evidenceFor(next);
+    if (!Array.isArray(selected) || selected.some(id => !evidence.some(item => item.id === id))) {
       fail(400, 'invalid_evidence', 'Select source evidence from this case.');
     }
     let value = command.action === 'accept' ? field.value : command.value;
@@ -162,7 +164,7 @@ export function applyCommand(record, command, actor, idempotencyKey, now = new D
         fail(400, 'invalid_value', 'The reviewed value does not match the field type.');
       }
       if (field.variantScoped && next.proposal.requiredVariant &&
-          !selected.some(id => next.proposal.evidence.find(item => item.id === id).variant === next.proposal.requiredVariant)) {
+          !selected.some(id => evidence.find(item => item.id === id).variant === next.proposal.requiredVariant)) {
         fail(409, 'variant_mismatch', 'Select evidence for the requested part variant.');
       }
       if (command.action === 'accept' && reasons(next.proposal, field).includes('variant_mismatch')) {
@@ -188,12 +190,15 @@ export function applyCommand(record, command, actor, idempotencyKey, now = new D
 
 export function exportReviewed(record, feedback = false) {
   if (!record.approved || record.status !== 'validated') fail(409, 'not_validated', 'Export requires an explicitly signed-off case.');
+  const { regions, ...cuLayout } = record.cuLayout ?? {};
+  const evidence = evidenceFor(record);
   return {
     schemaVersion: '1.0', kind: feedback ? 'curated_feedback_candidate' : 'reviewed_result',
     automaticTraining: false, requestedPart: record.proposal.requestedPart,
     requiredVariant: record.proposal.requiredVariant ?? null,
     runId: record.proposal.runId, document: record.proposal.document,
     documentRevision: record.proposal.documentRevision, approvedAt: record.approved.at,
+    ...(record.cuLayout ? { cuLayout } : {}),
     fields: record.proposal.fields.map(field => {
       const decision = decisionFor(record, field.id);
       return {
@@ -203,7 +208,7 @@ export function exportReviewed(record, feedback = false) {
         decision: decision?.kind ?? 'included_in_case_signoff',
         reason: decision?.reason ?? '',
         evidence: (decision?.evidenceIds ?? field.evidenceIds)
-          .map(id => record.proposal.evidence.find(item => item.id === id)),
+          .map(id => evidence.find(item => item.id === id)),
         modelScore: field.modelScore ?? null, nativeConfidence: field.nativeConfidence ?? null
       };
     })
