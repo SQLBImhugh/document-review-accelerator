@@ -69,11 +69,18 @@ async function logout() {
   document.querySelector('.workbench').hidden = true;
   document.querySelector('.release-bar').hidden = true;
   message('Signing out. Saved reviews are retained; unsaved drafts will be discarded.');
-  let localOnly = false;
   try {
-    await identity.logoutPopup({ account: selectedAccount, postLogoutRedirectUri: `${location.origin}/auth.html` });
-  } catch { localOnly = true; }
-  location.replace(localOnly ? `${location.origin}/?logout=local` : location.origin);
+    await identity.clearCache({ account: selectedAccount });
+    const endpoint = new URL(`https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/logout`);
+    endpoint.searchParams.set('client_id', config.spaClientId);
+    endpoint.searchParams.set('post_logout_redirect_uri', `${location.origin}/auth.html`);
+    if (typeof selectedAccount.idTokenClaims?.login_hint === 'string') {
+      endpoint.searchParams.set('logout_hint', selectedAccount.idTokenClaims.login_hint);
+    }
+    location.assign(endpoint.href);
+  } catch {
+    location.replace(`${location.origin}/?logout=local`);
+  }
 }
 async function loadQueue() {
   cases = (await (await api('/cases')).json()).items;

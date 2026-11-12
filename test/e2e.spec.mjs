@@ -12,10 +12,13 @@ test.beforeEach(async ({ page }) => {
     body: `window.msal={PublicClientApplication:class {
       async initialize(){} async loginPopup(){return {account:{name:'Synthetic reviewer'}}}
       setActiveAccount(){} async acquireTokenSilent(){return {accessToken:'synthetic-ui-test'}}
-      async clearCache(){}
-      async logoutPopup(request){await window.__testLogout?.(request)}
+      async clearCache(request){await window.__testLogout?.(request)}
     }};`
   }));
+  await page.route(/^https:\/\/login\.microsoftonline\.com\/[^/]+\/oauth2\/v2\.0\/logout(?:\?|$)/, route => {
+    const url = new URL(route.request().url());
+    return route.fulfill({ status: 302, headers: { location: url.searchParams.get('post_logout_redirect_uri') }, body: '' });
+  });
   await page.goto(origin);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.locator('.queue-item')).toHaveCount(10);
@@ -408,12 +411,17 @@ test('Logout ends the selected account session and clears the page without savin
     headers: { authorization: 'Bearer synthetic-ui-test' }
   })).json();
   const before = await load();
-  const calls = [], writes = [];
+  const calls = [], writes = [], logoutRequests = [];
   let release, entered;
   const gate = new Promise(resolve => { release = resolve; });
   const started = new Promise(resolve => { entered = resolve; });
   await page.exposeFunction('__testLogout', async input => { calls.push(input); entered(); await gate; });
-  page.on('request', request => { if (request.url().endsWith('/commands')) writes.push(request.method()); });
+  page.on('request', request => {
+    if (request.url().endsWith('/commands')) writes.push(request.method());
+    if (request.url().startsWith('https://login.microsoftonline.com/') && new URL(request.url()).pathname.endsWith('/logout')) {
+      logoutRequests.push(new URL(request.url()));
+    }
+  });
   await open(page, 'synthetic-04');
   await field(page, 'Finish');
   await page.locator('#reviewed-value').fill('unsaved draft');
@@ -432,7 +440,11 @@ test('Logout ends the selected account session and clears the page without savin
   await expect(page.locator('.queue-item')).toHaveCount(0);
   await expect(page.locator('#pdf-sheet')).toBeHidden();
   await expect(page.locator('#inspector')).toBeHidden();
-  expect(calls).toEqual([{ account: { name: 'Synthetic reviewer' }, postLogoutRedirectUri: `${origin}/auth.html` }]);
+  expect(calls).toEqual([{ account: { name: 'Synthetic reviewer' } }]);
+  expect(logoutRequests).toHaveLength(1);
+  expect(logoutRequests[0].searchParams.get('post_logout_redirect_uri')).toBe(`${origin}/auth.html`);
+  expect(logoutRequests[0].searchParams.get('client_id')).toBe('33333333-3333-4333-8333-333333333333');
+  expect(logoutRequests[0].searchParams.has('logout_hint')).toBe(false);
   expect(writes).toEqual([]);
   expect((await load()).etag).toBe(before.etag);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
@@ -442,8 +454,8 @@ test('Logout ends the selected account session and clears the page without savin
   await expect(page.locator('#reason')).toHaveValue('');
 });
 
-test('a blocked or canceled Microsoft logout still clears the workbench and explains the remaining session', async ({ page }) => {
-  await page.exposeFunction('__testLogout', () => { throw new Error('The logout popup was blocked.'); });
+test('a failed local sign-out still resets the workbench and explains the remaining Microsoft session', async ({ page }) => {
+  await page.exposeFunction('__testLogout', () => { throw new Error('The token cache could not be cleared.'); });
   await expect(page.getByRole('button', { name: 'Logout', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Logout', exact: true }).click();
   await expect(page.locator('#identity')).toHaveText('Not signed in');
@@ -467,6 +479,14 @@ test('an account without a Reviewer role can still use Logout', async ({ page })
   await expect(page.getByRole('button', { name: 'Logout', exact: true })).toBeVisible();
   expect(caseRequests).toBe(0);
   await page.getByRole('button', { name: 'Logout', exact: true }).click();
+  await expect(page.locator('#identity')).toHaveText('Not signed in');
+  await expect(page.locator('.queue-item')).toHaveCount(0);
+});
+
+test('a logout callback without an authentication payload returns to a clean sign-in page', async ({ page }) => {
+  await page.goto(`${origin}/auth.html`);
+  await expect(page).toHaveURL(`${origin}/`);
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeEnabled();
   await expect(page.locator('#identity')).toHaveText('Not signed in');
   await expect(page.locator('.queue-item')).toHaveCount(0);
 });

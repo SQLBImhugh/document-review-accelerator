@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.44.1.10279",
-      "templateHash": "9801890947498007916"
+      "templateHash": "11480090314016634809"
     }
   },
   "parameters": {
@@ -46,7 +46,7 @@
     }
   },
   "variables": {
-    "$fxv#0": "0.3.1",
+    "$fxv#0": "0.3.2",
     "version": "[variables('$fxv#0')]",
     "packageUri": "[format('https://github.com/SQLBImhugh/document-review-accelerator/releases/download/v{0}/document-review-app-v{1}.zip', variables('version'), variables('version'))]"
   },
