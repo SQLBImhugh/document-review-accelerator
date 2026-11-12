@@ -13,6 +13,7 @@ test.beforeEach(async ({ page }) => {
       async initialize(){} async loginPopup(){return {account:{name:'Synthetic reviewer'}}}
       setActiveAccount(){} async acquireTokenSilent(){return {accessToken:'synthetic-ui-test'}}
       async clearCache(){}
+      async logoutPopup(request){await window.__testLogout?.(request)}
     }};`
   }));
   await page.goto(origin);
@@ -400,4 +401,72 @@ test('signed-off CU evidence remains inspectable but cannot be relinked', async 
   await expect(box).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('#accept')).toBeDisabled();
   await expect(page.locator('#correct')).toBeDisabled();
+});
+
+test('Logout ends the selected account session and clears the page without saving or deleting reviews', async ({ page, request }) => {
+  const load = async () => (await request.get(`${origin}/api/cases/synthetic-04`, {
+    headers: { authorization: 'Bearer synthetic-ui-test' }
+  })).json();
+  const before = await load();
+  const calls = [], writes = [];
+  let release, entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  await page.exposeFunction('__testLogout', async input => { calls.push(input); entered(); await gate; });
+  page.on('request', request => { if (request.url().endsWith('/commands')) writes.push(request.method()); });
+  await open(page, 'synthetic-04');
+  await field(page, 'Finish');
+  await page.locator('#reviewed-value').fill('unsaved draft');
+  await page.locator('#reason').fill('Do not save this draft.');
+  await expect(page.getByRole('button', { name: 'Logout', exact: true })).toBeVisible();
+  try {
+    await page.getByRole('button', { name: 'Logout', exact: true }).click();
+    await started;
+    await expect(page.locator('.workbench')).toBeHidden();
+    await expect(page.locator('.release-bar')).toBeHidden();
+    await expect(page.locator('#signout')).toBeDisabled();
+  } finally { release(); }
+  await expect(page.locator('#identity')).toHaveText('Not signed in');
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeEnabled();
+  await expect(page.locator('#signout')).toBeHidden();
+  await expect(page.locator('.queue-item')).toHaveCount(0);
+  await expect(page.locator('#pdf-sheet')).toBeHidden();
+  await expect(page.locator('#inspector')).toBeHidden();
+  expect(calls).toEqual([{ account: { name: 'Synthetic reviewer' }, postLogoutRedirectUri: `${origin}/auth.html` }]);
+  expect(writes).toEqual([]);
+  expect((await load()).etag).toBe(before.etag);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await open(page, 'synthetic-04');
+  await field(page, 'Finish');
+  await expect(page.locator('#reviewed-value')).toHaveValue(before.proposal.fields.find(item => item.id === 'finish').value);
+  await expect(page.locator('#reason')).toHaveValue('');
+});
+
+test('a blocked or canceled Microsoft logout still clears the workbench and explains the remaining session', async ({ page }) => {
+  await page.exposeFunction('__testLogout', () => { throw new Error('The logout popup was blocked.'); });
+  await expect(page.getByRole('button', { name: 'Logout', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Logout', exact: true }).click();
+  await expect(page.locator('#identity')).toHaveText('Not signed in');
+  await expect(page.locator('.queue-item')).toHaveCount(0);
+  await expect(page.locator('#pdf-sheet')).toBeHidden();
+  await expect(page.locator('#message')).toContainText('Microsoft sign-out did not complete');
+  await expect(page.locator('#message')).toContainText('signed out of the workbench');
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeEnabled();
+  await expect(page).toHaveURL(`${origin}/`);
+});
+
+test('an account without a Reviewer role can still use Logout', async ({ page }) => {
+  let caseRequests = 0;
+  await page.route('**/api/me', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ id: 'unassigned-account', roles: [] })
+  }));
+  await page.route('**/api/cases', route => { caseRequests++; return route.continue(); });
+  await page.reload();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.locator('#message')).toContainText('no Reviewer role');
+  await expect(page.getByRole('button', { name: 'Logout', exact: true })).toBeVisible();
+  expect(caseRequests).toBe(0);
+  await page.getByRole('button', { name: 'Logout', exact: true }).click();
+  await expect(page.locator('#identity')).toHaveText('Not signed in');
+  await expect(page.locator('.queue-item')).toHaveCount(0);
 });

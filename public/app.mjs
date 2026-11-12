@@ -47,14 +47,33 @@ async function signIn() {
     const result = await identity.loginPopup({ scopes: [config.apiScope], prompt: 'select_account' });
     account = result.account;
     identity.setActiveAccount(account);
-    const me = await (await api('/me')).json();
-    if (!me.roles.includes('Reviewer')) throw new Error('This identity has no Reviewer role. Ask the deployment administrator for access.');
     $('identity').textContent = account.name ?? 'Signed in';
     $('signin').textContent = 'Renew sign-in';
     $('signout').hidden = false;
+    $('signout').disabled = false;
+    const me = await (await api('/me')).json();
+    if (!me.roles.includes('Reviewer')) throw new Error('This identity has no Reviewer role. Ask the deployment administrator for access.');
     $('refresh').disabled = false;
     await loadQueue();
   } catch (error) { report(error); }
+}
+async function logout() {
+  if (!identity || !account || busy) return;
+  const selectedAccount = account;
+  account = null;
+  busy = true;
+  generation++;
+  renderTask?.cancel();
+  $('signin').disabled = true;
+  $('signout').disabled = true;
+  document.querySelector('.workbench').hidden = true;
+  document.querySelector('.release-bar').hidden = true;
+  message('Signing out. Saved reviews are retained; unsaved drafts will be discarded.');
+  let localOnly = false;
+  try {
+    await identity.logoutPopup({ account: selectedAccount, postLogoutRedirectUri: `${location.origin}/auth.html` });
+  } catch { localOnly = true; }
+  location.replace(localOnly ? `${location.origin}/?logout=local` : location.origin);
 }
 async function loadQueue() {
   cases = (await (await api('/cases')).json()).items;
@@ -324,6 +343,7 @@ function paintSources() {
 }
 function paintDecisionControls() {
   const locked = busy || caseLoading || Boolean(current.approved);
+  $('signout').disabled = busy;
   $('reviewed-value').disabled = locked;
   $('reason').disabled = locked;
   $('accept').disabled = locked || !pdf || current.fieldReasons[fieldId].includes('variant_mismatch');
@@ -456,10 +476,7 @@ async function exportCase(feedback) {
   download(JSON.stringify(result, null, 2), `${current.proposal.id}-${feedback ? 'feedback-candidate' : 'reviewed'}.json`, 'application/json');
 }
 $('signin').addEventListener('click', signIn);
-$('signout').addEventListener('click', async () => {
-  await identity.clearCache();
-  location.reload();
-});
+$('signout').addEventListener('click', logout);
 $('refresh').addEventListener('click', async () => {
   try { await loadQueue(); if (current) await openCase(current.proposal.id); } catch (error) { report(error); }
 });
@@ -478,6 +495,12 @@ $('download-pdf').addEventListener('click', () => { if (pdfBytes) download(pdfBy
 for (const action of ['accept', 'correct', 'unresolved', 'signoff']) $(action).addEventListener('click', () => submit(action).catch(report));
 $('export').addEventListener('click', () => exportCase(false).catch(report));
 $('feedback').addEventListener('click', () => exportCase(true).catch(report));
+const navigation = new URL(location.href);
+if (navigation.searchParams.get('logout') === 'local') {
+  navigation.searchParams.delete('logout');
+  history.replaceState(null, '', `${navigation.pathname}${navigation.search}${navigation.hash}`);
+  message('Microsoft sign-out did not complete. You are signed out of the workbench, but your Microsoft browser session may still be active.', 'error');
+}
 try {
   config = await (await fetch('/api/config', { cache: 'no-store' })).json();
   if (config.mode === 'identity_setup_required') {

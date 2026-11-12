@@ -49,7 +49,7 @@ retraining or a ready-made native model-label file.
 
 ## Deploy
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FSQLBImhugh%2Fdocument-review-accelerator%2Fv0.3.0%2Finfra%2Fazuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FSQLBImhugh%2Fdocument-review-accelerator%2Fv0.3.1%2Finfra%2Fazuredeploy.json)
 
 ### Portal deployment
 
@@ -182,6 +182,12 @@ No application secret, storage key, SAS token, or service connection string is
 created. The browser uses MSAL's memory token cache and the v5 redirect bridge.
 After a page reload, sign in again; saved reviews remain in Blob Storage.
 
+**Logout** clears the workbench session and opens Microsoft sign-out for the
+selected account. Review content is hidden immediately, and unsaved drafts are
+discarded; saved reviews are retained. If the popup is blocked or canceled,
+the workbench still signs out locally and warns that the Microsoft browser
+session may remain active. Accounts without a Reviewer role can also log out.
+
 A credential-free receipt is written to `.local\deployment.json`. Rerunning the
 same deployment reuses its applications and resources. Keep the receipt for
 teardown; do not add `.local` to a customer package.
@@ -295,7 +301,7 @@ Deployment-option tests use PowerShell 7 and do not call Azure or change resourc
 `npm run build:portal` regenerates `infra\azuredeploy.json` from
 `infra\azuredeploy.bicep` and the shared main template. Its runtime package URL
 uses the version from `package.json`, for example
-`releases/download/v0.3.0/document-review-app-v0.3.0.zip`.
+`releases/download/v0.3.1/document-review-app-v0.3.1.zip`.
 The matching GitHub release includes a SHA-256 checksum. Regenerate the template
 and publish the matching built runtime ZIP before releasing a new button version;
 the GitHub source-code ZIP is not an executable deployment package.
