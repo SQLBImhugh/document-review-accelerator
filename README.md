@@ -49,7 +49,7 @@ retraining or a ready-made native model-label file.
 
 ## Deploy
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FSQLBImhugh%2Fdocument-review-accelerator%2Fv0.2.2%2Finfra%2Fazuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FSQLBImhugh%2Fdocument-review-accelerator%2Fv0.3.0%2Finfra%2Fazuredeploy.json)
 
 ### Portal deployment
 
@@ -150,7 +150,9 @@ Public endpoints do not mean public documents: anonymous Blob access, shared
 keys, and basic publishing remain disabled. The app uses managed identity for
 Blob access, and every data API requires an assigned Entra application role.
 
-Add `-Seed` to create ten synthetic review cases and a real two-page PDF.
+Add `-Seed` to create two simple synthetic review cases and a real one-page PDF.
+Each case has three proposed fields and no prelinked evidence. The available
+CU-shaped word/line boxes must be selected by a reviewer.
 The sign-in shell and health/configuration endpoints are publicly reachable;
 review data is not anonymously accessible.
 
@@ -247,10 +249,18 @@ uncropped PDF, with at most 1,000 combined imported/discovered regions. It rejec
 unsupported or mismatched layouts rather than guessing or silently truncating.
 The input contract explains rotation, units, and source-pairing limits.
 
-On a fresh seed, `synthetic-09` demonstrates discovery with a CU-shaped fixture
-generated from the synthetic PDF's text positions, not a live CU analysis.
-Existing seeded cases are not overwritten; an older `synthetic-09` does not
-gain boxes until imported under a new case ID or tested in a fresh deployment.
+On a fresh seed, `manual-01` and `manual-02` share a simple part specification
+with part number, length, and finish. The second proposal has an incorrect
+length for correction practice. Both start with empty evidence links, no
+variant inference, and no fabricated model or field-confidence scores.
+Their CU-shaped fixture is generated from the PDF's text positions, not a live
+CU analysis. Legacy prelinked fixtures remain in the regression suite only.
+
+Seeding does not overwrite existing case IDs or remove earlier examples.
+For a separate demo queue, create another private container in the same storage
+account and configure `REVIEW_CONTAINER` before seeding. Existing records stay
+in the original container; selecting it again restores that queue. Documents
+remain in `DOCUMENT_CONTAINER`. The app does not create containers itself.
 
 For service-to-service import, assign the existing pipeline's managed identity
 the API's `Importer` application role. Request an access token for the API, not
@@ -285,7 +295,7 @@ Deployment-option tests use PowerShell 7 and do not call Azure or change resourc
 `npm run build:portal` regenerates `infra\azuredeploy.json` from
 `infra\azuredeploy.bicep` and the shared main template. Its runtime package URL
 uses the version from `package.json`, for example
-`releases/download/v0.2.2/document-review-app-v0.2.2.zip`.
+`releases/download/v0.3.0/document-review-app-v0.3.0.zip`.
 The matching GitHub release includes a SHA-256 checksum. Regenerate the template
 and publish the matching built runtime ZIP before releasing a new button version;
 the GitHub source-code ZIP is not an executable deployment package.
@@ -293,6 +303,9 @@ The button pins a release tag, not the moving main branch. Update its tag only
 when the corresponding template and runtime have completed deployment verification.
 After `.\scripts\package.ps1`, run `npm run test:package` to boot the actual ZIP
 on a temporary local port, verify locked APIs and browser assets, and stop it.
+`scripts\verify-live.mjs` checks a deployed app with an Entra token held only in
+`DOCUMENT_REVIEW_TOKEN`. It creates a new manual-only verification case and
+signs it off; it does not change existing cases.
 
 `dist\document-review-accelerator-source.zip` contains reusable source, tests,
 contracts, and deployment scripts. It excludes customer documents, deployment

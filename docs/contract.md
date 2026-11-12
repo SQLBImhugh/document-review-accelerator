@@ -29,8 +29,8 @@ review mode. Once configured, the normal Entra token/role rules apply.
 
 ## Proposal
 
-`scripts\synthetic.mjs` and `scripts\seed.mjs` generate and import a complete
-runnable example. The proposal has:
+`manualReviewFixture` in `scripts\synthetic.mjs` and `scripts\seed.mjs` generate
+and import two simple examples with no field-to-source links. The proposal has:
 
 | Property | Meaning |
 | --- | --- |

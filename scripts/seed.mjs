@@ -1,4 +1,4 @@
-import { syntheticFixture } from './synthetic.mjs';
+import { manualReviewFixture } from './synthetic.mjs';
 
 const origin = process.argv[2]?.replace(/\/$/, '');
 const token = process.env.DOCUMENT_REVIEW_TOKEN;
@@ -10,7 +10,7 @@ async function request(route, options = {}) {
   if (!response.ok) throw new Error(`${route}: ${response.status} ${await response.text()}`);
   return response.json();
 }
-const { bytes, document, proposals } = await syntheticFixture();
+const { bytes, document, proposals } = await manualReviewFixture();
 const uploaded = await request('/documents', {
   method: 'POST', headers: { 'content-type': 'application/pdf', 'x-document-name': document.filename }, body: bytes
 });
@@ -23,7 +23,17 @@ for (const proposal of proposals) {
   created++;
 }
 const verified = await request('/cases');
+let discoveredRegions = 0;
 for (const proposal of proposals) {
   if (!verified.items.some(item => item.id === proposal.id)) throw new Error(`Seed did not persist ${proposal.id}.`);
+  const actual = await request(`/cases/${proposal.id}`);
+  if (actual.proposal.document?.sha256 !== uploaded.sha256 || !actual.cuLayout?.regions?.length ||
+      actual.proposal.fields.some(field => field.evidenceIds.length) || actual.proposal.evidence.length) {
+    throw new Error(`${proposal.id} is not the manual-only discovery sample. Existing cases were not overwritten; use new case IDs or an empty review container.`);
+  }
+  discoveredRegions += actual.cuLayout.regions.length;
 }
-console.log(JSON.stringify({ created, existing, verifiedSyntheticCases: proposals.length, actualPdfSha256: uploaded.sha256 }));
+console.log(JSON.stringify({
+  created, existing, verifiedSyntheticCases: proposals.length, actualPdfSha256: uploaded.sha256,
+  discoveredRegions, prelinkedFields: 0
+}));

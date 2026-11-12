@@ -121,3 +121,62 @@ export async function syntheticFixture() {
   });
   return { bytes, document, proposals };
 }
+
+export async function manualReviewFixture() {
+  const pdf = await PDFDocument.create();
+  pdf.setTitle('Synthetic manual-review sample - SP-101');
+  pdf.setAuthor('Document Review Accelerator');
+  pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+  pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const page = pdf.addPage([612, 792]);
+  const layout = { pageNumber: 1, width: 8.5, height: 11, words: [], lines: [] };
+  const write = (content, y, size = 14, strong = false) => {
+    const face = strong ? bold : font;
+    page.drawText(content, { x: 48, y, size, font: face, color: rgb(0.12, 0.18, 0.22) });
+    const region = (text, x) => ({
+      content: text,
+      source: `D(1,${(x - 1) / 72},${(792 - y - size - 1) / 72},${(face.widthOfTextAtSize(text, size) + 2) / 72},${(size + 3) / 72})`
+    });
+    layout.lines.push(region(content, 48));
+    for (const match of content.matchAll(/\S+/g)) {
+      layout.words.push(region(match[0], 48 + face.widthOfTextAtSize(content.slice(0, match.index), size)));
+    }
+  };
+  write('SYNTHETIC SAMPLE / NOT A CUSTOMER DOCUMENT', 744, 10, true);
+  write('Simple component specification', 698, 24, true);
+  write('Revision A / January 2026', 672, 11);
+  write('Part number: SP-101', 606, 18, true);
+  write('Length: 30.0 mm', 552, 18, true);
+  write('Finish: zinc plated', 498, 18, true);
+  write('Practice document review only. No extraction model was run.', 402, 11);
+  write('Boxes show available source text, not automatic field connections.', 380, 11);
+  write('Do not use these specifications for manufacturing.', 48, 10);
+  const bytes = Buffer.from(await pdf.save());
+  const id = hash(bytes);
+  const document = {
+    id, sha256: id, filename: 'synthetic-SP-101-manual-review.pdf',
+    pages: [{ number: 1, width: 612, height: 792, rotation: 0 }]
+  };
+  const cuLayout = {
+    documentSha256: id, coordinateSpace: 'display',
+    analysis: {
+      status: 'Succeeded',
+      result: {
+        analyzerId: 'synthetic-layout-fixture', apiVersion: '2025-11-01',
+        contents: [{ kind: 'document', unit: 'inch', startPageNumber: 1, endPageNumber: 1, pages: [layout] }]
+      }
+    }
+  };
+  const proposals = [30, 29].map((length, index) => ({
+    schemaVersion: '1.0', id: `manual-0${index + 1}`, requestedPart: 'SP-101',
+    runId: `manual-run-0${index + 1}`, documentRevision: 'A', document, evidence: [], cuLayout,
+    fields: [
+      { id: 'part', label: 'Part number', valueType: 'string', kind: 'extracted', value: 'SP-101', evidenceIds: [] },
+      { id: 'length', label: 'Length', valueType: 'number', kind: 'extracted', value: length, unit: 'mm', evidenceIds: [] },
+      { id: 'finish', label: 'Finish', valueType: 'string', kind: 'extracted', value: 'zinc plated', evidenceIds: [] }
+    ]
+  }));
+  return { bytes, document, proposals };
+}
